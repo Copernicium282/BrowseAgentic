@@ -5,6 +5,7 @@ import { translatePage } from '../translation/index.js';
 export interface ObserveInput {
   modality: Modality;
   viewport_only?: boolean;
+  compact?: boolean;
 }
 
 export async function handleObserve(
@@ -14,6 +15,9 @@ export async function handleObserve(
   const page = await orchestrator.getPage();
   const session = await orchestrator.getSession();
   const viewportOnly = input.viewport_only ?? true;
+  const compact = input.compact ?? false;
 
-  return translatePage(page, session, input.modality, viewportOnly);
+  const result = await translatePage(page, session, input.modality, viewportOnly, compact);
+  session.last_modality = input.modality;
+  return result;
 }

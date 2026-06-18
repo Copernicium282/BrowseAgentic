@@ -42,6 +42,7 @@ export class BrowserOrchestrator {
       network_failure_buffer: [],
       last_aom_hash: null,
       element_map: new Map(),
+      last_modality: null,
     };
 
     this.setupConsoleCapture();

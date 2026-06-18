@@ -1,21 +1,22 @@
-import type { ActionType, AOMNode } from '../types.js';
+import type { ActionType, AOMNode, Modality } from '../types.js';
 import type { BrowserOrchestrator } from '../orchestrator.js';
 
 export interface InteractInput {
   action: ActionType;
-  element_id: number;
+  ref: string;
   value?: string;
 }
 
 export interface InteractResult {
   success: boolean;
   action_performed?: string;
-  element_id?: number;
+  ref?: string;
   console_alerts_since_action?: string[];
   network_alerts_since_action?: string[];
   hint?: string;
   error?: string;
   dom_changed?: boolean;
+  snapshot?: string;
 }
 
 export async function handleInteract(
@@ -25,22 +26,20 @@ export async function handleInteract(
   const page = await orchestrator.getPage();
   const session = await orchestrator.getSession();
 
-  // Check element exists in map
-  const elementEntry = session.element_map.get(input.element_id);
+  const elementEntry = session.element_map.get(input.ref);
   if (!elementEntry) {
     return {
       success: false,
       error: 'ELEMENT_NOT_FOUND',
-      hint: `Element ID ${input.element_id} not found. Call observe_page to get fresh element IDs.`,
+      hint: `Ref "${input.ref}" not found. Try capturing new snapshot.`,
     };
   }
 
-  // Clear alert buffers before action
   const consoleBefore = session.console_log_buffer.length;
   const networkBefore = session.network_failure_buffer.length;
 
   try {
-    const selector = buildInteractSelector(input.element_id, elementEntry);
+    const selector = elementEntry.selector ?? buildFallbackSelector(elementEntry.rect);
     const el = page.locator(selector).first();
 
     switch (input.action) {
@@ -61,21 +60,32 @@ export async function handleInteract(
         break;
     }
 
-    // Drain alert buffers
     const consoleAlerts = session.console_log_buffer.splice(consoleBefore);
     const networkAlerts = session.network_failure_buffer.splice(networkBefore);
-
-    // Check for DOM staleness
     const domChanged = await checkStaleness(page, session);
+
+    // Auto-snapshot-after-action
+    let snapshot: string | undefined;
+    const modality = session.last_modality ?? 'text';
+    if (modality === 'text') {
+      const { extractAOM } = await import('../translation/aom.js');
+      const { markdown } = await extractAOM(page, session);
+      snapshot = markdown;
+    } else {
+      const { captureVision } = await import('../translation/vision.js');
+      const vision = await captureVision(page, session);
+      snapshot = vision.image_base64;
+    }
 
     return {
       success: true,
       action_performed: input.action,
-      element_id: input.element_id,
+      ref: input.ref,
       console_alerts_since_action: consoleAlerts,
       network_alerts_since_action: networkAlerts,
       dom_changed: domChanged,
-      hint: domChanged ? 'DOM changed significantly. Call observe_page to get fresh element IDs.' : 'Call observe_page to verify the new state.',
+      hint: domChanged ? 'DOM changed significantly. Call observe_page to get fresh refs.' : 'Call observe_page to verify the new state.',
+      snapshot,
     };
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : String(err);
@@ -86,20 +96,16 @@ export async function handleInteract(
   }
 }
 
-function buildInteractSelector(elementId: number, entry: { selector?: string; rect: AOMNode['rect'] }): string {
-  if (entry.selector) return entry.selector;
-  // Fallback to coordinates
-  return `::-p-xpath(//*)[${`position()=1`}]/..`;
+function buildFallbackSelector(rect: AOMNode['rect']): string {
+  return `::-p-xywh(${Math.round(rect.x)},${Math.round(rect.y)},${Math.round(rect.width)},${Math.round(rect.height)})`;
 }
 
 async function checkStaleness(page: import('playwright').Page, session: import('../types.js').SessionState): Promise<boolean> {
   if (!session.last_aom_hash) return false;
-
   try {
     const cdp = await page.context().newCDPSession(page);
     const result = await cdp.send('Accessibility.getFullAXTree') as { nodes: Array<{ role?: string; name?: string }> };
     await cdp.detach();
-
     const quickHash = result.nodes
       .filter((n) => n.role && n.name)
       .map((n) => `${n.role}:${n.name}`)
@@ -107,8 +113,6 @@ async function checkStaleness(page: import('playwright').Page, session: import('
       .split('')
       .reduce((acc, c) => ((acc << 5) - acc + c.charCodeAt(0)) | 0, 0)
       .toString(36);
-
-    // If hash differs significantly, DOM changed
     return quickHash !== session.last_aom_hash;
   } catch {
     return false;

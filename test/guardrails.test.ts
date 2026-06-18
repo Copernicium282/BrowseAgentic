@@ -6,12 +6,18 @@ const config: OmniBrowserConfig['security'] = {
   block_localhost: true,
   blocked_domains: ['evil.com'],
   allowed_domains: [],
+  allowed_paths: [],
+  blocked_paths: [],
+  allowed_commands: [],
 };
 
 const configWithWhitelist: OmniBrowserConfig['security'] = {
   block_localhost: true,
   blocked_domains: [],
   allowed_domains: ['example.com'],
+  allowed_paths: [],
+  blocked_paths: [],
+  allowed_commands: [],
 };
 
 // Test 1: localhost blocked

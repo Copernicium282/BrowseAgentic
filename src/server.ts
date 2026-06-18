@@ -8,16 +8,21 @@ import { handleObserve } from './tools/observe.js';
 import { handleInteract } from './tools/interact.js';
 import { handleScroll } from './tools/scroll.js';
 import { handleEvalJS } from './tools/eval_js.js';
+import { handleFSRead } from './tools/fs_read.js';
+import { handleFSWrite } from './tools/fs_write.js';
+import { handleFSList } from './tools/fs_list.js';
+import { handleExec } from './tools/exec.js';
+import { handleGit } from './tools/git.js';
 
 export function createServer(orchestrator: BrowserOrchestrator, config: OmniBrowserConfig): McpServer {
   const server = new McpServer({
-    name: 'omnibrowser',
-    version: '0.1.0',
+    name: 'browseagentic',
+    version: '0.2.0',
   });
 
   server.tool(
     'navigate',
-    'Navigate the browser to a URL. Returns the final URL, page title, and status code. Use wait_until to control when navigation is considered complete.',
+    'Navigate the browser to a URL. Returns the final URL, page title, and status code.',
     {
       url: z.string().describe('URL to navigate to (must be http:// or https://)'),
       wait_until: z.enum(['load', 'domcontentloaded', 'networkidle']).optional().describe('When to consider navigation complete (default: networkidle)'),
@@ -37,13 +42,14 @@ export function createServer(orchestrator: BrowserOrchestrator, config: OmniBrow
 
   server.tool(
     'observe_page',
-    "Captures the current state of the web page. Use modality='vision' if you can process images (returns a screenshot with numbered bounding boxes over every clickable element). Use modality='text' if you are text-only (returns a compressed list of interactive elements with IDs). Always call this after navigating or interacting to get fresh element IDs.",
+    "Captures the current state of the web page. Use modality='vision' for screenshots with numbered bounding boxes over every clickable element. Use modality='text' for a compressed list of interactive elements with refs (e1, e2, ...). Set compact=true to reduce token usage. Always call this after navigating or interacting to get fresh refs.",
     {
-      modality: z.enum(['vision', 'text']).describe('Observation modality: vision for image-based, text for AOM-based'),
+      modality: z.enum(['vision', 'text']).describe('Observation modality'),
       viewport_only: z.boolean().optional().describe('Only capture elements in the viewport (default: true)'),
+      compact: z.boolean().optional().describe('Strip non-interactive nodes to reduce tokens (default: false)'),
     },
     async (args) => {
-      console.error(`[tool] observe_page → modality=${args.modality}`);
+      console.error(`[tool] observe_page → modality=${args.modality} compact=${args.compact ?? false}`);
       try {
         const result = await handleObserve(orchestrator, args);
         return { content: [{ type: 'text' as const, text: JSON.stringify(result) }] };
@@ -58,14 +64,14 @@ export function createServer(orchestrator: BrowserOrchestrator, config: OmniBrow
 
   server.tool(
     'interact',
-    'Perform an action on an element identified by its agent_id from the last observation. Actions: click, type, hover, clear. Always call observe_page first to get element IDs.',
+    'Perform an action on an element by its ref from the last observation. Actions: click, type, hover, clear. Always call observe_page first to get fresh refs. Returns an auto-updated snapshot after the action.',
     {
       action: z.enum(['click', 'type', 'hover', 'clear']).describe('Action to perform'),
-      element_id: z.number().describe('ID of the element from the last observe_page call'),
+      ref: z.string().describe('Element ref (e.g. "e1", "e2") from the last observe_page call'),
       value: z.string().optional().describe('Text to type (required for type action)'),
     },
     async (args) => {
-      console.error(`[tool] interact → ${args.action} on element ${args.element_id}`);
+      console.error(`[tool] interact → ${args.action} on ref ${args.ref}`);
       const result = await handleInteract(orchestrator, args);
       if (result.success) {
         return { content: [{ type: 'text' as const, text: JSON.stringify(result) }] };
@@ -79,7 +85,7 @@ export function createServer(orchestrator: BrowserOrchestrator, config: OmniBrow
 
   server.tool(
     'scroll',
-    'Scroll the viewport in the specified direction. Always call observe_page after scrolling to get fresh element IDs.',
+    'Scroll the viewport. Always call observe_page after scrolling to get fresh refs.',
     {
       direction: z.enum(['up', 'down', 'left', 'right']).describe('Direction to scroll'),
       amount_pixels: z.number().optional().describe('Number of pixels to scroll (default: 800)'),
@@ -99,7 +105,7 @@ export function createServer(orchestrator: BrowserOrchestrator, config: OmniBrow
 
   server.tool(
     'eval_js',
-    'Execute arbitrary JavaScript in the page context and return the result. This is a power-user escape hatch for when the standard tools are not sufficient.',
+    'Execute arbitrary JavaScript in the page context and return the result.',
     {
       script: z.string().describe('JavaScript expression or block with explicit return'),
     },
@@ -113,6 +119,98 @@ export function createServer(orchestrator: BrowserOrchestrator, config: OmniBrow
         isError: true,
         content: [{ type: 'text' as const, text: result.error ?? 'JS_ERROR' }],
       };
+    },
+  );
+
+  // === RSI Tools (Recursive Self Improvement) ===
+
+  server.tool(
+    'read_file',
+    'Read a file from the local filesystem. Returns content with line numbers. Respects path sandboxing.',
+    {
+      path: z.string().describe('File path to read'),
+      line_numbers: z.boolean().optional().describe('Include line numbers (default: true)'),
+    },
+    async (args) => {
+      console.error(`[tool] read_file → ${args.path}`);
+      const result = await handleFSRead(config, args);
+      if (result.success) {
+        return { content: [{ type: 'text' as const, text: result.content ?? '' }] };
+      }
+      return { isError: true, content: [{ type: 'text' as const, text: result.error ?? 'READ_ERROR' }] };
+    },
+  );
+
+  server.tool(
+    'write_file',
+    'Write content to a file. Creates parent directories if needed. Respects path sandboxing.',
+    {
+      path: z.string().describe('File path to write'),
+      content: z.string().describe('Content to write'),
+    },
+    async (args) => {
+      console.error(`[tool] write_file → ${args.path} (${args.content.length} bytes)`);
+      const result = await handleFSWrite(config, args);
+      if (result.success) {
+        return { content: [{ type: 'text' as const, text: `Written ${result.bytes_written} bytes to ${args.path}` }] };
+      }
+      return { isError: true, content: [{ type: 'text' as const, text: result.error ?? 'WRITE_ERROR' }] };
+    },
+  );
+
+  server.tool(
+    'list_directory',
+    'List directory contents. Respects path sandboxing.',
+    {
+      path: z.string().describe('Directory path to list'),
+      recursive: z.boolean().optional().describe('List recursively (default: false)'),
+    },
+    async (args) => {
+      console.error(`[tool] list_directory → ${args.path}`);
+      const result = await handleFSList(config, args);
+      if (result.success) {
+        return { content: [{ type: 'text' as const, text: (result.entries ?? []).join('\n') }] };
+      }
+      return { isError: true, content: [{ type: 'text' as const, text: result.error ?? 'LIST_ERROR' }] };
+    },
+  );
+
+  server.tool(
+    'run_command',
+    'Execute a shell command. Only allowlisted commands are permitted (npm, git, tsc, node, etc). Enforces timeout.',
+    {
+      command: z.string().describe('Command to execute (must be in allowlist)'),
+      args: z.array(z.string()).optional().describe('Command arguments'),
+      cwd: z.string().optional().describe('Working directory'),
+      timeout_ms: z.number().optional().describe('Timeout in ms (max 120000, default 30000)'),
+    },
+    async (args) => {
+      console.error(`[tool] run_command → ${args.command} ${(args.args ?? []).join(' ')}`);
+      const result = await handleExec(config, args);
+      const output = [result.stdout, result.stderr].filter(Boolean).join('\n');
+      if (result.success) {
+        return { content: [{ type: 'text' as const, text: output || '(no output)' }] };
+      }
+      return { isError: true, content: [{ type: 'text' as const, text: `${result.error}\n${output}` }] };
+    },
+  );
+
+  server.tool(
+    'git',
+    'Run git operations. Commits are auto-prefixed with [self-improve]. Actions: status, diff, log, commit, branch, add.',
+    {
+      action: z.enum(['status', 'diff', 'log', 'commit', 'branch', 'add']).describe('Git action'),
+      message: z.string().optional().describe('Commit message (required for commit action)'),
+      files: z.array(z.string()).optional().describe('Files to add (for add action)'),
+      branch_name: z.string().optional().describe('Branch name (for branch action)'),
+    },
+    async (args) => {
+      console.error(`[tool] git → ${args.action}`);
+      const result = await handleGit(config, args);
+      if (result.success) {
+        return { content: [{ type: 'text' as const, text: result.output ?? '(no output)' }] };
+      }
+      return { isError: true, content: [{ type: 'text' as const, text: result.error ?? 'GIT_ERROR' }] };
     },
   );
 

@@ -19,6 +19,9 @@ export interface OmniBrowserConfig {
     block_localhost: boolean;
     blocked_domains: string[];
     allowed_domains: string[];
+    allowed_paths: string[];
+    blocked_paths: string[];
+    allowed_commands: string[];
   };
   artifacts: {
     record_video: boolean;
@@ -33,10 +36,12 @@ export interface OmniBrowserConfig {
 
 export interface AOMNode {
   agent_id: number;
+  ref: string;
   role: string;
   name: string;
   value?: string;
   description?: string;
+  placeholder?: string;
   state: {
     disabled: boolean;
     focused: boolean;
@@ -72,5 +77,6 @@ export interface SessionState {
   console_log_buffer: string[];
   network_failure_buffer: string[];
   last_aom_hash: string | null;
-  element_map: Map<number, { selector?: string; rect: AOMNode['rect'] }>;
+  element_map: Map<string, { selector?: string; rect: AOMNode['rect'] }>;
+  last_modality: Modality | null;
 }

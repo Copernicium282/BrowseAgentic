@@ -17,6 +17,9 @@ security:
   block_localhost: true
   blocked_domains: []
   allowed_domains: []
+  allowed_paths: ["."]
+  blocked_paths: [".git", "node_modules", "dist"]
+  allowed_commands: ["npm", "npx", "tsc", "git", "node", "tsx", "ls", "grep", "find", "diff", "wc"]
 
 artifacts:
   record_video: true
