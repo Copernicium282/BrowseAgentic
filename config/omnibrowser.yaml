@@ -1,0 +1,28 @@
+server:
+  transport: "stdio"
+
+browser:
+  engine: "chromium"
+  headless: true
+  viewport:
+    width: 1280
+    height: 800
+  args:
+    - "--disable-gpu"
+    - "--disable-dev-shm-usage"
+    - "--no-sandbox"
+  timeout_ms: 30000
+
+security:
+  block_localhost: true
+  blocked_domains: []
+  allowed_domains: []
+
+artifacts:
+  record_video: true
+  video_dir: "./sessions/videos"
+  capture_console_errors: true
+  capture_network_failures: true
+
+fallback_vision:
+  enabled: false

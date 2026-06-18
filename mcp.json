@@ -1,0 +1,21 @@
+{
+  "mcpServers": {
+    "omnibrowser": {
+      "command": "docker",
+      "args": [
+        "run", "-i", "--rm",
+        "--ipc=host",
+        "-v", "${PWD}/config/omnibrowser.yaml:/app/config/omnibrowser.yaml",
+        "-v", "${PWD}/sessions:/app/sessions",
+        "omnibrowser:latest"
+      ]
+    },
+    "omnibrowser-local": {
+      "command": "node",
+      "args": ["./dist/index.js"],
+      "env": {
+        "OMNIBROWSER_CONFIG": "./config/omnibrowser.yaml"
+      }
+    }
+  }
+}

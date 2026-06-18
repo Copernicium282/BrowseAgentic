@@ -1,0 +1,23 @@
+{
+  "name": "browseagentic",
+  "version": "0.1.0",
+  "description": "MCP server giving AI agents a sandboxed browser",
+  "main": "dist/index.js",
+  "scripts": {
+    "build": "tsc",
+    "start": "node dist/index.js",
+    "dev": "tsx watch src/index.ts"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "latest",
+    "js-yaml": "^4.1.0",
+    "playwright": "^1.44.0",
+    "zod": "^4.4.3"
+  },
+  "devDependencies": {
+    "@types/js-yaml": "^4.0.9",
+    "@types/node": "^20.14.0",
+    "tsx": "^4.19.0",
+    "typescript": "^5.4.0"
+  }
+}
