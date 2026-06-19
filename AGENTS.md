@@ -118,6 +118,30 @@ Note: `browser.close()` in CDP mode disconnects from Chrome — it does NOT kill
 3. Either use MCP tools (Option A) or write Playwright scripts (Option B).
 4. You now control the visible browser.
 
+## How to Interact (Read This First)
+
+**The golden rule: Look before you act. Screenshot after every action.**
+
+1. **Screenshot first.** Before doing anything, take a screenshot to see the current state of the page. Never assume what's on screen.
+2. **One action at a time.** Do one click, one type, one scroll — then screenshot again to see the result. Never batch multiple actions into a single script.
+3. **Verify each step.** After every interaction, take a screenshot and check: did the action have the expected effect? If not, adjust.
+4. **Never write a long automation script.** You are not a test runner. You are an agent interacting with a live browser. Work step by step.
+5. **Read the page.** Use `page.evaluate()` or `page.textContent()` to read what's on screen. Don't guess.
+
+**Example flow:**
+```
+screenshot → see the page
+navigate to URL → screenshot → verify page loaded
+click element → screenshot → verify element responded
+type text → screenshot → verify text appeared
+```
+
+**What NOT to do:**
+- ❌ Write a 200-line script that does everything at once
+- ❌ Assume a selector exists without checking
+- ❌ Skip screenshots because "it should work"
+- ❌ Chain multiple actions without verifying between them
+
 ## Tool Reference (MCP Mode)
 
 ### Browser Tools
@@ -448,6 +472,61 @@ const rows = await page.evaluate(() =>
   )
 );
 ```
+
+### Drawing on Excalidraw
+
+Excalidraw stores its scene in `window.excalidrawAPI` or via the `excalidraw` global. To draw programmatically:
+
+```js
+// Get the Excalidraw API
+const api = window.excalidrawAPI || window.excalidraw;
+
+// Create elements (circles, lines, rectangles, text)
+const elements = [
+  {
+    type: "circle",
+    x: 400, y: 300,
+    width: 100, height: 100,
+    strokeColor: "#000000",
+    backgroundColor: "transparent",
+    strokeWidth: 2,
+  },
+  {
+    type: "line",
+    x: 450, y: 300,
+    width: 200, height: 0,
+    strokeColor: "#000000",
+    strokeWidth: 2,
+    points: [[0, 0], [200, 0]],
+  },
+  {
+    type: "text",
+    x: 500, y: 200,
+    text: "Hello!",
+    fontSize: 20,
+    strokeColor: "#000000",
+  },
+];
+
+// Update the scene
+api.updateScene({ elements });
+
+// Or use the simpler approach: use the toolbar
+// Click a tool (e.g., rectangle), then click-drag on canvas
+```
+
+**Simpler approach — use the toolbar:**
+1. Screenshot to see the toolbar
+2. Click a tool icon (rectangle, circle, line, text, etc.)
+3. Click and drag on the canvas to draw
+4. Screenshot to verify
+
+**To draw specific shapes via toolbar:**
+- Select the tool by clicking its icon in the top toolbar
+- For rectangles/circles: click start point, drag to end point
+- For lines: click start, click end points
+- For text: click where you want text, then type
+- Screenshot after each shape to verify placement
 
 ## Config
 
