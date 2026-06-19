@@ -1,0 +1,96 @@
+server:
+  transport: "stdio"
+
+browser:
+  engine: "chromium"
+  headless: true
+  viewport:
+    width: 1280
+    height: 800
+  args:
+    - "--disable-gpu"
+    - "--disable-dev-shm-usage"
+    - "--no-sandbox"
+  timeout_ms: 30000
+
+security:
+  block_localhost: true
+  blocked_domains: []
+  allowed_domains: []
+  secret_redaction_patterns:
+    - "sk-[a-zA-Z0-9]{20,}"
+    - "ghp_[a-zA-Z0-9]{36}"
+    - "AKIA[0-9A-Z]{16}"
+    - "Bearer [a-zA-Z0-9._-]{20,}"
+  eval_js_xss_detection: "warn"
+  console_capture_level: "warning"
+
+artifacts:
+  record_video: true
+  video_dir: "./sessions/videos"
+  capture_console_errors: true
+  capture_network_failures: true
+
+fallback_vision:
+  enabled: false
+
+budget:
+  max_elements: 20
+  per_field_char_cap: 2000
+  total_response_char_cap: 4000
+  overflow_dir: "./sessions/overflow"
+
+cache:
+  enabled: true
+  backend: "filesystem"
+  dir: "./sessions/cache"
+  ttl_hours: 168
+
+rsi:
+  sandbox_root: "."
+  protected_patterns:
+    - "**/.git/**"
+    - "**/.env"
+    - "**/*.key"
+    - "**/*.pem"
+  hidden_patterns:
+    - ".git"
+    - "node_modules"
+    - "__pycache__"
+    - ".venv"
+  command_allowlist:
+    - "ls"
+    - "cat"
+    - "head"
+    - "tail"
+    - "wc"
+    - "find"
+    - "grep"
+    - "pwd"
+    - "tree"
+    - "file"
+    - "git status"
+    - "git diff"
+    - "git log"
+    - "git add"
+    - "git commit"
+    - "git branch"
+    - "git show"
+    - "npm install"
+    - "npm run"
+    - "npm test"
+    - "npm ci"
+    - "node"
+    - "npx tsc"
+    - "python3"
+    - "pip install"
+    - "pip3 install"
+    - "tsc"
+  command_timeout_ms: 30000
+  max_stdout_chars: 50000
+
+tabs:
+  max_open_tabs: 10
+
+session:
+  profiles_dir: "./sessions/profiles"
