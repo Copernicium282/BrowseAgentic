@@ -473,61 +473,6 @@ const rows = await page.evaluate(() =>
 );
 ```
 
-### Drawing on Excalidraw
-
-Excalidraw stores its scene in `window.excalidrawAPI` or via the `excalidraw` global. To draw programmatically:
-
-```js
-// Get the Excalidraw API
-const api = window.excalidrawAPI || window.excalidraw;
-
-// Create elements (circles, lines, rectangles, text)
-const elements = [
-  {
-    type: "circle",
-    x: 400, y: 300,
-    width: 100, height: 100,
-    strokeColor: "#000000",
-    backgroundColor: "transparent",
-    strokeWidth: 2,
-  },
-  {
-    type: "line",
-    x: 450, y: 300,
-    width: 200, height: 0,
-    strokeColor: "#000000",
-    strokeWidth: 2,
-    points: [[0, 0], [200, 0]],
-  },
-  {
-    type: "text",
-    x: 500, y: 200,
-    text: "Hello!",
-    fontSize: 20,
-    strokeColor: "#000000",
-  },
-];
-
-// Update the scene
-api.updateScene({ elements });
-
-// Or use the simpler approach: use the toolbar
-// Click a tool (e.g., rectangle), then click-drag on canvas
-```
-
-**Simpler approach — use the toolbar:**
-1. Screenshot to see the toolbar
-2. Click a tool icon (rectangle, circle, line, text, etc.)
-3. Click and drag on the canvas to draw
-4. Screenshot to verify
-
-**To draw specific shapes via toolbar:**
-- Select the tool by clicking its icon in the top toolbar
-- For rectangles/circles: click start point, drag to end point
-- For lines: click start, click end points
-- For text: click where you want text, then type
-- Screenshot after each shape to verify placement
-
 ## Config
 
 Edit `config/browseagentic.yaml`:
