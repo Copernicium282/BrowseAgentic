@@ -38,15 +38,34 @@ start_browser() {
   echo "Launching Chrome (CDP port $CDP_PORT)..."
   mkdir -p "$PROFILE"
 
+  # Detect screen size and position browser on left half
+  SCREEN_RES=$(xdpyinfo 2>/dev/null | grep dimensions | awk '{print $2}')
+  if [ -n "$SCREEN_RES" ]; then
+    SCREEN_W=$(echo "$SCREEN_RES" | cut -dx -f1)
+    SCREEN_H=$(echo "$SCREEN_RES" | cut -dx -f2)
+    WIN_W=$((SCREEN_W / 2))
+    WIN_POS="0,0"
+  else
+    WIN_W=960
+    WIN_POS="0,0"
+    SCREEN_H=1200
+  fi
+
   "$CHROME" \
     --remote-debugging-port="$CDP_PORT" \
     --user-data-dir="$PROFILE" \
     --no-first-run \
     --no-default-browser-check \
     --disable-gpu \
-    --disable-features=PasswordManagerOnboarding \
+    --disable-features=PasswordManagerOnboarding,PasswordManager,PasswordCheck |
     --disable-save-password-bubble \
+    --disable-password-generation \
+    --disable-password-manager-reauthentication \
     --password-store=basic \
+    --no-default-app-check \
+    --disable-extensions \
+    --window-size="$WIN_W,$SCREEN_H" \
+    --window-position="$WIN_POS" \
     "about:blank" \
     > "$LOGFILE" 2>&1 &
 
