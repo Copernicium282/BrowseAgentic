@@ -65,14 +65,15 @@ export function createServer(orchestrator: BrowserOrchestrator, config: OmniBrow
 
   server.tool(
     'interact',
-    'Perform an action on an element by its ref from the last observation. Actions: click, type, hover, clear. Always call observe_page first to get fresh refs. Returns an auto-updated snapshot after the action.',
+    'Perform an action on an element by its ref from the last observation. Actions: click, type, hover, clear. Pass instruction for cache lookup. Returns auto-updated snapshot.',
     {
       action: z.enum(['click', 'type', 'hover', 'clear']).describe('Action to perform'),
       ref: z.string().describe('Element ref (e.g. "e1", "e2") from the last observe_page call'),
       value: z.string().optional().describe('Text to type (required for type action)'),
+      instruction: z.string().optional().describe('Natural language instruction for cache lookup (e.g. "click login button")'),
     },
     async (args) => {
-      console.error(`[tool] interact → ${args.action} on ref ${args.ref}`);
+      console.error(`[tool] interact → ${args.action} on ref ${args.ref}${args.instruction ? ` cache=${args.instruction}` : ''}`);
       const result = await handleInteract(orchestrator, args);
       if (result.success) {
         return { content: [{ type: 'text' as const, text: JSON.stringify(result) }] };

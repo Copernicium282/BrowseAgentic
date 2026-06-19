@@ -5,6 +5,7 @@ export interface InteractInput {
   action: ActionType;
   ref: string;
   value?: string;
+  instruction?: string;
 }
 
 export interface InteractResult {
@@ -17,6 +18,7 @@ export interface InteractResult {
   error?: string;
   dom_changed?: boolean;
   snapshot?: string;
+  cache_hit?: boolean;
 }
 
 export async function handleInteract(
@@ -25,6 +27,26 @@ export async function handleInteract(
 ): Promise<InteractResult> {
   const page = await orchestrator.getPage();
   const session = await orchestrator.getSession();
+  const cache = orchestrator.getActCache();
+
+  // Try cache hit if instruction provided
+  if (cache?.enabled && input.instruction) {
+    const context = await cache.prepareContext(input.instruction, page);
+    if (context) {
+      const cached = await cache.tryReplay(context, page);
+      if (cached?.success) {
+        const snapshot = await takeSnapshot(page, session, session.last_modality ?? 'text');
+        return {
+          success: true,
+          action_performed: input.action,
+          ref: input.ref,
+          cache_hit: true,
+          hint: 'Cache hit — action replayed from cache.',
+          snapshot,
+        };
+      }
+    }
+  }
 
   const elementEntry = session.element_map.get(input.ref);
   if (!elementEntry) {
@@ -60,22 +82,27 @@ export async function handleInteract(
         break;
     }
 
+    // Store successful action in cache
+    if (cache?.enabled && input.instruction) {
+      const context = await cache.prepareContext(input.instruction, page);
+      if (context) {
+        const methodMap: Record<string, string> = { click: 'click', type: 'fill', hover: 'hover', clear: 'fill' };
+        await cache.store(context, {
+          success: true,
+          actions: [{
+            selector,
+            method: methodMap[input.action] ?? input.action,
+            arguments: input.value ? [input.value] : [],
+            description: input.instruction,
+          }],
+        });
+      }
+    }
+
     const consoleAlerts = session.console_log_buffer.splice(consoleBefore);
     const networkAlerts = session.network_failure_buffer.splice(networkBefore);
     const domChanged = await checkStaleness(page, session);
-
-    // Auto-snapshot-after-action
-    let snapshot: string | undefined;
-    const modality = session.last_modality ?? 'text';
-    if (modality === 'text') {
-      const { extractAOM } = await import('../translation/aom.js');
-      const { snapshot: aomSnapshot } = await extractAOM(page, session);
-      snapshot = aomSnapshot;
-    } else {
-      const { captureVision } = await import('../translation/vision.js');
-      const vision = await captureVision(page, session);
-      snapshot = vision.image_base64;
-    }
+    const snapshot = await takeSnapshot(page, session, session.last_modality ?? 'text');
 
     return {
       success: true,
@@ -94,6 +121,17 @@ export async function handleInteract(
     }
     return { success: false, error: 'INTERACT_ERROR', hint: msg };
   }
+}
+
+async function takeSnapshot(page: import('playwright').Page, session: import('../types.js').SessionState, modality: Modality): Promise<string | undefined> {
+  if (modality === 'text') {
+    const { extractAOM } = await import('../translation/aom.js');
+    const { snapshot } = await extractAOM(page, session);
+    return snapshot;
+  }
+  const { captureVision } = await import('../translation/vision.js');
+  const vision = await captureVision(page, session);
+  return vision.image_base64;
 }
 
 function buildFallbackSelector(rect: AOMNode['rect']): string {

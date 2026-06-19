@@ -1,6 +1,7 @@
 import { chromium, type Browser, type BrowserContext, type Page } from 'playwright';
 import type { OmniBrowserConfig, SessionState, AOMNode } from './types.js';
 import { randomUUID } from 'crypto';
+import { ActCache, CacheStorage } from './cache/index.js';
 
 export class BrowserOrchestrator {
   private browser: Browser | null = null;
@@ -8,6 +9,7 @@ export class BrowserOrchestrator {
   private page: Page | null = null;
   private session: SessionState | null = null;
   private config: OmniBrowserConfig | null = null;
+  private actCache: ActCache | null = null;
 
   async init(config: OmniBrowserConfig): Promise<void> {
     this.config = config;
@@ -16,6 +18,15 @@ export class BrowserOrchestrator {
       args: config.browser.args,
       channel: 'chromium',
     });
+
+    // Initialize action cache
+    const cacheDir = config.server.cache_dir;
+    this.actCache = new ActCache({
+      storage: cacheDir ? CacheStorage.create(cacheDir) : CacheStorage.createMemory(),
+      domSettleTimeoutMs: config.browser.timeout_ms,
+      getSelectorForElement: async (_id, _page) => null,
+    });
+
     await this.createSession();
   }
 
@@ -96,6 +107,10 @@ export class BrowserOrchestrator {
   async getSession(): Promise<SessionState> {
     if (!this.session) throw new Error('No active session — call init() first');
     return this.session;
+  }
+
+  getActCache(): ActCache | null {
+    return this.actCache;
   }
 
   async closeSession(): Promise<void> {

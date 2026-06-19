@@ -9,6 +9,7 @@ export interface OmniBrowserConfig {
     transport: 'stdio';
     console_level: 'error' | 'warning' | 'info' | 'debug';
     secrets: Record<string, string>;
+    cache_dir?: string;
   };
   browser: {
     engine: 'chromium';
