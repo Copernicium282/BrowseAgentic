@@ -1,5 +1,7 @@
 server:
   transport: "stdio"
+  console_level: "warning"
+  secrets: {}
 
 browser:
   engine: "chromium"

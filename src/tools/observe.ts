@@ -6,6 +6,7 @@ export interface ObserveInput {
   modality: Modality;
   viewport_only?: boolean;
   compact?: boolean;
+  depth?: number;
 }
 
 export async function handleObserve(
@@ -17,7 +18,7 @@ export async function handleObserve(
   const viewportOnly = input.viewport_only ?? true;
   const compact = input.compact ?? false;
 
-  const result = await translatePage(page, session, input.modality, viewportOnly, compact);
+  const result = await translatePage(page, session, input.modality, viewportOnly, compact, input.depth);
   session.last_modality = input.modality;
   return result;
 }

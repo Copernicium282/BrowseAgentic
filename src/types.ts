@@ -7,6 +7,8 @@ export type ScrollDirection = 'up' | 'down' | 'left' | 'right';
 export interface OmniBrowserConfig {
   server: {
     transport: 'stdio';
+    console_level: 'error' | 'warning' | 'info' | 'debug';
+    secrets: Record<string, string>;
   };
   browser: {
     engine: 'chromium';

@@ -53,9 +53,18 @@ export class BrowserOrchestrator {
     if (!this.page || !this.session || !this.config) return;
     if (!this.config.artifacts.capture_console_errors) return;
 
+    const level = this.config.server.console_level ?? 'warning';
+    const levelOrder = ['error', 'warning', 'info', 'debug'];
+    const thresholdIdx = levelOrder.indexOf(level);
+
     this.page.on('console', (msg) => {
-      if (msg.type() === 'error' || msg.type() === 'warning') {
-        this.session!.console_log_buffer.push(`[${msg.type()}] ${msg.text()}`);
+      const msgType = msg.type();
+      let msgIdx = levelOrder.indexOf(msgType);
+      if (msgIdx === -1) msgIdx = 2; // default to info
+      if (msgIdx <= thresholdIdx) {
+        let text = msg.text();
+        text = this.redactSecrets(text);
+        this.session!.console_log_buffer.push(`[${msgType}] ${text}`);
       }
     });
   }
@@ -129,6 +138,14 @@ export class BrowserOrchestrator {
       }
       route.continue();
     });
+  }
+
+  redactSecrets(text: string): string {
+    if (!this.config?.server.secrets) return text;
+    for (const [name, value] of Object.entries(this.config.server.secrets)) {
+      if (value) text = text.replaceAll(value, `<secret>${name}</secret>`);
+    }
+    return text;
   }
 
   async shutdown(): Promise<void> {

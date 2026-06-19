@@ -9,6 +9,7 @@ export async function translatePage(
   modality: Modality,
   viewportOnly: boolean,
   compact: boolean,
+  depth?: number,
 ): Promise<ObservationPayload> {
   const url = page.url();
   const title = await page.title();
@@ -24,8 +25,8 @@ export async function translatePage(
   };
 
   if (modality === 'text') {
-    const { nodes, markdown } = await extractAOM(page, session, compact);
-    return { ...base, aom_nodes: nodes, aom_markdown: markdown };
+    const { nodes, snapshot } = await extractAOM(page, session, compact, depth);
+    return { ...base, aom_nodes: nodes, aom_markdown: snapshot };
   }
 
   const vision = await captureVision(page, session);

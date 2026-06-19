@@ -69,8 +69,8 @@ export async function handleInteract(
     const modality = session.last_modality ?? 'text';
     if (modality === 'text') {
       const { extractAOM } = await import('../translation/aom.js');
-      const { markdown } = await extractAOM(page, session);
-      snapshot = markdown;
+      const { snapshot: aomSnapshot } = await extractAOM(page, session);
+      snapshot = aomSnapshot;
     } else {
       const { captureVision } = await import('../translation/vision.js');
       const vision = await captureVision(page, session);

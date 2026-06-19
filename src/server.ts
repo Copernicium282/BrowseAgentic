@@ -42,14 +42,15 @@ export function createServer(orchestrator: BrowserOrchestrator, config: OmniBrow
 
   server.tool(
     'observe_page',
-    "Captures the current state of the web page. Use modality='vision' for screenshots with numbered bounding boxes over every clickable element. Use modality='text' for a compressed list of interactive elements with refs (e1, e2, ...). Set compact=true to reduce token usage. Always call this after navigating or interacting to get fresh refs.",
+    "Captures the current state of the web page. Use modality='vision' for screenshots with numbered bounding boxes. Use modality='text' for an indented snapshot with refs (e1, e2, ...). Set compact=true to reduce tokens. Set depth=N to limit tree depth. Always call after navigating or interacting.",
     {
       modality: z.enum(['vision', 'text']).describe('Observation modality'),
-      viewport_only: z.boolean().optional().describe('Only capture elements in the viewport (default: true)'),
-      compact: z.boolean().optional().describe('Strip non-interactive nodes to reduce tokens (default: false)'),
+      viewport_only: z.boolean().optional().describe('Only capture elements in viewport (default: true)'),
+      compact: z.boolean().optional().describe('Strip non-interactive nodes (default: false)'),
+      depth: z.number().optional().describe('Limit snapshot tree depth'),
     },
     async (args) => {
-      console.error(`[tool] observe_page → modality=${args.modality} compact=${args.compact ?? false}`);
+      console.error(`[tool] observe_page → modality=${args.modality} compact=${args.compact ?? false} depth=${args.depth ?? 'all'}`);
       try {
         const result = await handleObserve(orchestrator, args);
         return { content: [{ type: 'text' as const, text: JSON.stringify(result) }] };

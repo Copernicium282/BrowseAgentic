@@ -6,21 +6,23 @@ const INTERACTIVE_ROLES = new Set([
   'menuitem', 'tab', 'searchbox', 'spinbutton', 'slider',
 ]);
 
-const VISIBLE_ATTRS = new Set([
-  'id', 'name', 'role', 'aria-label', 'value', 'checked', 'disabled', 'placeholder', 'href', 'type',
-]);
-
 interface AXNode {
-  role?: string;
-  name?: string;
+  nodeId?: string;
+  role?: string | { type: string; value: string };
+  name?: string | { type: string; value: string };
   value?: string;
-  description?: string;
-  disabled?: boolean;
-  focused?: boolean;
-  checked?: boolean;
-  expanded?: boolean;
-  children?: AXNode[];
-  backendDOMNodeId?: number;
+  childIds?: string[];
+  ignored?: boolean;
+  properties?: Array<{ name: string; value: { type: string; value: unknown } }>;
+}
+
+interface TreeNode {
+  role: string;
+  name: string;
+  ref?: string;
+  children: (TreeNode | string)[];
+  props: Record<string, unknown>;
+  box?: { x: number; y: number; width: number; height: number };
 }
 
 interface Rect { x: number; y: number; width: number; height: number }
@@ -29,74 +31,38 @@ export async function extractAOM(
   page: Page,
   session: SessionState,
   compact = false,
-): Promise<{ nodes: AOMNode[]; markdown: string; hash: string }> {
+  depth?: number,
+): Promise<{ nodes: AOMNode[]; snapshot: string; hash: string }> {
   const cdp = await page.context().newCDPSession(page);
-
-  // Get accessibility tree
   const axResult = await cdp.send('Accessibility.getFullAXTree') as { nodes: AXNode[] };
 
-  // Paint order data — simplified for MVP, uses heuristic occlusion
-  let paintOrders: Map<number, number> = new Map();
-  try {
-    const snapResult = await cdp.send('DOMSnapshot.captureSnapshot' as never, {
-      includePaintOrder: true,
-      includeDOMRects: true,
-      computedStyles: [],
-    } as never) as unknown as { documents?: Array<{ nodes: { paintOrders?: number[] } }> };
-    if (snapResult.documents?.[0]?.nodes?.paintOrders) {
-      const orders = snapResult.documents[0].nodes.paintOrders;
-      for (let i = 0; i < orders.length; i++) {
-        paintOrders.set(i, orders[i]);
-      }
-    }
-  } catch {
-    // Paint order not available on some pages
-  }
-
-  // Get cursor-interactive elements via JS injection
   const cursorInteractive = await detectCursorInteractive(page);
-
   await cdp.detach();
 
-  // Build nodes from AX tree
-  const rawNodes: AOMNode[] = [];
-  for (const axNode of axResult.nodes) {
-    collectNodes(axNode, rawNodes);
-  }
+  // Build tree structure from flat AX nodes
+  const tree = buildTree(axResult.nodes);
 
-  // Get bounding boxes
-  for (const node of rawNodes) {
-    const selector = buildSelector(node);
-    if (selector) {
-      try {
-        const el = page.locator(selector).first();
-        const box = await el.boundingBox();
-        if (box) {
-          node.rect = { x: box.x, y: box.y, width: box.width, height: box.height };
-        }
-      } catch {
-        // Skip
-      }
-    }
-  }
+  // Prune: remove empty generic wrappers, coalesce text
+  pruneTree(tree);
 
-  // Filter: valid rects only
-  let nodes = rawNodes.filter((n) => n.rect.width > 0 && n.rect.height > 0);
+  // Get bounding boxes for all nodes
+  const flatNodes: AOMNode[] = [];
+  await collectFlatNodes(tree, page, flatNodes, 0);
 
-  // Paint-order filtering: remove occluded elements
-  nodes = filterByPaintOrder(nodes, paintOrders);
+  // Filter valid rects
+  let nodes = flatNodes.filter((n) => n.rect.width > 0 && n.rect.height > 0);
 
-  // Bounding-box containment: parent absorbs children
+  // Bounding-box containment
   nodes = filterByContainment(nodes);
 
-  // Cursor-interactive: add elements found by JS detection
+  // Merge cursor-interactive elements
   for (const ci of cursorInteractive) {
     if (!nodes.some((n) => Math.abs(n.rect.x - ci.rect.x) < 2 && Math.abs(n.rect.y - ci.rect.y) < 2)) {
       nodes.push(ci);
     }
   }
 
-  // Assign refs and populate element_map
+  // Assign refs
   session.element_map.clear();
   nodes.forEach((n, i) => {
     n.agent_id = i + 1;
@@ -105,43 +71,283 @@ export async function extractAOM(
     session.element_map.set(n.ref, { selector: selector ?? undefined, rect: n.rect });
   });
 
-  const markdown = buildMarkdown(nodes, compact);
+  // Render as YAML-indented snapshot
+  const snapshot = renderSnapshot(tree, compact, depth);
   const hash = computeHash(nodes);
   session.last_aom_hash = hash;
 
-  return { nodes, markdown, hash };
+  return { nodes, snapshot, hash };
 }
 
-function collectNodes(node: AXNode, result: AOMNode[]): void {
-  const role = node.role ?? '';
-  const isInteractive = INTERACTIVE_ROLES.has(role);
-  const isMedia = role === 'img' || role === 'figure';
+function buildTree(axNodes: AXNode[]): TreeNode {
+  const root: TreeNode = { role: 'fragment', name: '', children: [], props: {} };
+
+  // Build map from nodeId to node
+  const nodeMap = new Map<string, AXNode>();
+  for (const node of axNodes) {
+    if (node.nodeId) nodeMap.set(node.nodeId, node);
+  }
+
+  const getRole = (node: AXNode): string => {
+    const r = node.role;
+    if (typeof r === 'string') return r;
+    if (r && typeof r === 'object') return r.value ?? '';
+    return '';
+  };
+
+  const getName = (node: AXNode): string => {
+    const n = node.name;
+    if (typeof n === 'string') return n;
+    if (n && typeof n === 'object') return n.value ?? '';
+    return '';
+  };
+
+  const getProp = (node: AXNode, name: string): unknown => {
+    const prop = node.properties?.find((p) => p.name === name);
+    return prop?.value?.value;
+  };
+
+  const walk = (nodeId: string, parent: TreeNode) => {
+    const node = nodeMap.get(nodeId);
+    if (!node) return;
+
+    // Always process children of ignored/skipped nodes
+    const processChildren = () => {
+      if (node.childIds) {
+        for (const childId of node.childIds) walk(childId, parent);
+      }
+    };
+
+    if (node.ignored) {
+      processChildren();
+      return;
+    }
+
+    const role = getRole(node);
+    if (!role || role === 'presentation' || role === 'none' || role === 'RootWebArea') {
+      processChildren();
+      return;
+    }
+
+    // Skip generic nodes with no name
+    if (role === 'generic' && !getName(node)) {
+      processChildren();
+      return;
+    }
+
+    const treeNode: TreeNode = {
+      role,
+      name: getName(node),
+      children: [],
+      props: {},
+    };
+
+    const checked = getProp(node, 'checked');
+    if (checked !== undefined) treeNode.props.checked = checked;
+    if (getProp(node, 'disabled')) treeNode.props.disabled = true;
+    if (getProp(node, 'expanded')) treeNode.props.expanded = true;
+    const level = getProp(node, 'level');
+    if (typeof level === 'number') treeNode.props.level = level;
+    if (getProp(node, 'pressed')) treeNode.props.pressed = true;
+    if (getProp(node, 'selected')) treeNode.props.selected = true;
+
+    parent.children.push(treeNode);
+
+    if (node.childIds) {
+      for (const childId of node.childIds) walk(childId, treeNode);
+    }
+  };
+
+  // Start from root node (first in array)
+  if (axNodes.length > 0 && axNodes[0].nodeId) {
+    walk(axNodes[0].nodeId, root);
+  }
+  return root;
+}
+
+function pruneTree(node: TreeNode): void {
+  const pruned: (TreeNode | string)[] = [];
+
+  for (const child of node.children) {
+    if (typeof child === 'string') {
+      pruned.push(child);
+      continue;
+    }
+
+    pruneTree(child);
+
+    // Collapse empty generic wrappers
+    if (child.role === 'generic' && !child.name && child.children.length === 1) {
+      const only = child.children[0];
+      if (typeof only === 'string') {
+        pruned.push(only);
+      } else {
+        pruned.push(only);
+      }
+      continue;
+    }
+
+    pruned.push(child);
+  }
+
+  // Coalesce adjacent text nodes
+  const coalesced: (TreeNode | string)[] = [];
+  let textBuffer = '';
+  for (const child of pruned) {
+    if (typeof child === 'string') {
+      textBuffer += child;
+    } else {
+      if (textBuffer) {
+        coalesced.push(textBuffer);
+        textBuffer = '';
+      }
+      coalesced.push(child);
+    }
+  }
+  if (textBuffer) coalesced.push(textBuffer);
+
+  // Remove children that duplicate the node's name
+  if (coalesced.length === 1 && typeof coalesced[0] === 'string' && coalesced[0] === node.name) {
+    node.children = [];
+  } else {
+    node.children = coalesced;
+  }
+}
+
+async function collectFlatNodes(
+  node: TreeNode,
+  page: Page,
+  result: AOMNode[],
+  depth: number,
+): Promise<void> {
+  if (node.role === 'fragment') {
+    for (const child of node.children) {
+      if (typeof child !== 'string') await collectFlatNodes(child, page, result, depth);
+    }
+    return;
+  }
+
+  const selector = buildSelectorFromTree(node);
+  let box: Rect = { x: 0, y: 0, width: 0, height: 0 };
+
+  if (selector) {
+    try {
+      const el = page.locator(selector).first();
+      const bounding = await el.boundingBox();
+      if (bounding) {
+        box = { x: bounding.x, y: bounding.y, width: bounding.width, height: bounding.height };
+      }
+    } catch {
+      // Skip
+    }
+  }
+
+  const isInteractive = INTERACTIVE_ROLES.has(node.role);
+  const isMedia = node.role === 'img' || node.role === 'figure';
 
   if (isInteractive || isMedia) {
     result.push({
       agent_id: 0,
       ref: '',
-      role,
-      name: node.name ?? '',
-      value: node.value,
-      description: isMedia ? '[Image: no description available]' : node.description,
-      placeholder: undefined,
+      role: node.role,
+      name: node.name,
+      value: typeof node.props.value === 'string' ? node.props.value : undefined,
+      description: isMedia ? '[Image: no description available]' : undefined,
       state: {
-        disabled: node.disabled ?? false,
-        focused: node.focused ?? false,
-        checked: node.checked,
-        expanded: node.expanded,
+        disabled: typeof node.props.disabled === 'boolean' ? node.props.disabled : false,
+        focused: false,
+        checked: typeof node.props.checked === 'boolean' ? node.props.checked : undefined,
+        expanded: typeof node.props.expanded === 'boolean' ? node.props.expanded : undefined,
       },
-      rect: { x: 0, y: 0, width: 0, height: 0 },
+      rect: box,
       is_fallback_translated: false,
     });
   }
 
-  if (node.children) {
-    for (const child of node.children) {
-      collectNodes(child, result);
+  for (const child of node.children) {
+    if (typeof child !== 'string') await collectFlatNodes(child, page, result, depth + 1);
+  }
+}
+
+function buildSelectorFromTree(node: TreeNode): string | null {
+  if (node.role === 'link' && node.name) return `a:has-text("${node.name}")`;
+  if (node.role === 'button' && node.name) return `button:has-text("${node.name}")`;
+  if ((node.role === 'textbox' || node.role === 'searchbox') && node.name) return `input[placeholder="${node.name}"]`;
+  if (node.role === 'checkbox') return `input[type="checkbox"]`;
+  if (node.role === 'radio') return `input[type="radio"]`;
+  if (node.role === 'combobox') return `select`;
+  if (node.role === 'img') return 'img';
+  if (node.role === 'figure') return 'figure';
+  return null;
+}
+
+function renderSnapshot(node: TreeNode, compact: boolean, maxDepth?: number, indent = 0): string {
+  if (node.role === 'fragment') {
+    return node.children
+      .map((c) => (typeof c === 'string' ? '' : renderSnapshot(c, compact, maxDepth, indent)))
+      .filter(Boolean)
+      .join('\n');
+  }
+
+  if (maxDepth !== undefined && indent > maxDepth) return '';
+
+  const parts: string[] = [];
+  const prefix = '  '.repeat(indent);
+
+  // Build key: role "name" [ref=eN] [props...]
+  let key = node.role;
+  if (node.name && node.name.length <= 900) {
+    key += ` "${escapeYamlString(node.name)}"`;
+  }
+  if (node.ref) key += ` [ref=${node.ref}]`;
+  if (node.props.checked === true) key += ' [checked]';
+  if (node.props.checked === 'mixed') key += ' [checked=mixed]';
+  if (node.props.disabled) key += ' [disabled]';
+  if (node.props.expanded) key += ' [expanded]';
+  if (node.props.level) key += ` [level=${node.props.level}]`;
+  if (node.props.pressed === true) key += ' [pressed]';
+  if (node.props.selected) key += ' [selected]';
+  if (node.box) key += ` [box=${Math.round(node.box.x)},${Math.round(node.box.y)},${Math.round(node.box.width)},${Math.round(node.box.height)}]`;
+
+  // Single text child inlined
+  if (node.children.length === 1 && typeof node.children[0] === 'string') {
+    parts.push(`${prefix}- ${key}: "${escapeYamlString(node.children[0])}"`);
+    return parts.join('\n');
+  }
+
+  if (node.children.length === 0 && !compact) {
+    // Leaf node with no children — inline value if present
+    const val = node.props.value;
+    if (val !== undefined) {
+      parts.push(`${prefix}- ${key}: "${escapeYamlString(String(val))}"`);
+    } else {
+      parts.push(`${prefix}- ${key}`);
+    }
+    return parts.join('\n');
+  }
+
+  parts.push(`${prefix}- ${key}:`);
+
+  for (const child of node.children) {
+    if (typeof child === 'string') {
+      parts.push(`${prefix}  - text: "${escapeYamlString(child)}"`);
+    } else {
+      const childRendered = renderSnapshot(child, compact, maxDepth, indent + 1);
+      if (childRendered) parts.push(childRendered);
     }
   }
+
+  return parts.join('\n');
+}
+
+function escapeYamlString(str: string): string {
+  if (!str) return '';
+  return str
+    .replace(/\\/g, '\\\\')
+    .replace(/"/g, '\\"')
+    .replace(/\n/g, '\\n')
+    .replace(/\r/g, '\\r')
+    .replace(/\t/g, '\\t');
 }
 
 function buildSelector(node: AOMNode): string | null {
@@ -150,50 +356,41 @@ function buildSelector(node: AOMNode): string | null {
   if ((node.role === 'textbox' || node.role === 'searchbox') && node.name) return `input[placeholder="${node.name}"]`;
   if (node.role === 'checkbox') return `input[type="checkbox"]`;
   if (node.role === 'radio') return `input[type="radio"]`;
-  if (node.role === 'combobox') return `select`;
-  if (node.role === 'img') return `img`;
-  if (node.role === 'figure') return `figure`;
+  if (node.role === 'combobox') return 'select';
+  if (node.role === 'img') return 'img';
+  if (node.role === 'figure') return 'figure';
   return null;
-}
-
-function filterByPaintOrder(
-  nodes: AOMNode[],
-  paintOrders: Map<number, number>,
-): AOMNode[] {
-  if (paintOrders.size === 0) return nodes;
-  // Heuristic: elements with high paint order overlapping lower ones are likely overlays
-  // For MVP, keep all nodes — full occlusion logic deferred
-  return nodes;
 }
 
 function filterByContainment(nodes: AOMNode[]): AOMNode[] {
   const clickableRoles = new Set(['button', 'link', 'checkbox', 'radio', 'menuitem', 'tab']);
   const result: AOMNode[] = [];
+  const removed = new Set<number>();
 
-  for (const node of nodes) {
-    const isClickable = clickableRoles.has(node.role);
-    if (isClickable) {
-      // Check if any other node is fully contained within this one
-      const children = nodes.filter(
-        (other) =>
-          other !== node &&
-          other.rect.x >= node.rect.x &&
-          other.rect.y >= node.rect.y &&
-          other.rect.x + other.rect.width <= node.rect.x + node.rect.width &&
-          other.rect.y + other.rect.height <= node.rect.y + node.rect.height,
-      );
-      // Keep parent, skip contained children
-      for (const child of children) {
-        const idx = nodes.indexOf(child);
-        if (idx !== -1) nodes[idx] = null as unknown as AOMNode; // mark for removal
-      }
+  for (let i = 0; i < nodes.length; i++) {
+    if (removed.has(i)) continue;
+    const node = nodes[i];
+    if (!clickableRoles.has(node.role)) {
       result.push(node);
-    } else if (node !== null) {
-      result.push(node);
+      continue;
     }
+    // Check if any other node is fully contained
+    for (let j = 0; j < nodes.length; j++) {
+      if (i === j || removed.has(j)) continue;
+      const other = nodes[j];
+      if (
+        other.rect.x >= node.rect.x &&
+        other.rect.y >= node.rect.y &&
+        other.rect.x + other.rect.width <= node.rect.x + node.rect.width &&
+        other.rect.y + other.rect.height <= node.rect.y + node.rect.height
+      ) {
+        removed.add(j);
+      }
+    }
+    result.push(node);
   }
 
-  return result.filter(Boolean);
+  return result;
 }
 
 async function detectCursorInteractive(page: Page): Promise<AOMNode[]> {
@@ -246,23 +443,6 @@ function guessRole(tag: string): string {
   if (tag === 'select') return 'combobox';
   if (tag === 'textarea') return 'textbox';
   return 'element';
-}
-
-function buildMarkdown(nodes: AOMNode[], compact: boolean): string {
-  return nodes
-    .filter((n) => !compact || INTERACTIVE_ROLES.has(n.role))
-    .map((n) => {
-      const parts: string[] = [];
-      if (compact) {
-        parts.push(`[${n.ref}] ${n.role}: "${n.name}"`);
-      } else {
-        const valuePart = n.value !== undefined ? ` (value: "${n.value}")` : '';
-        const descPart = n.description ? ` — ${n.description}` : '';
-        parts.push(`[${n.ref}] ${n.role}: "${n.name}"${valuePart}${descPart}`);
-      }
-      return parts.join('');
-    })
-    .join('\n');
 }
 
 function computeHash(nodes: AOMNode[]): string {
