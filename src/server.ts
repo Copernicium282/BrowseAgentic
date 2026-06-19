@@ -13,6 +13,7 @@ import { handleFSWrite } from './tools/fs_write.js';
 import { handleFSList } from './tools/fs_list.js';
 import { handleExec } from './tools/exec.js';
 import { handleGit } from './tools/git.js';
+import { handleSaveSession, handleLoadSession, handleListSessions } from './session/persistence.js';
 
 export function createServer(orchestrator: BrowserOrchestrator, config: BrowseAgenticConfig): McpServer {
   const server = new McpServer({
@@ -213,6 +214,53 @@ export function createServer(orchestrator: BrowserOrchestrator, config: BrowseAg
         return { content: [{ type: 'text' as const, text: result.output ?? '(no output)' }] };
       }
       return { isError: true, content: [{ type: 'text' as const, text: result.error ?? 'GIT_ERROR' }] };
+    },
+  );
+
+  // Session persistence tools
+  server.tool(
+    'save_session',
+    'Save browser session (cookies + localStorage) to a named profile. Use for persisting login state across restarts.',
+    {
+      profile_name: z.string().describe('Profile name (alphanumeric, underscore, hyphen only)'),
+    },
+    async (args) => {
+      console.error(`[tool] save_session → ${args.profile_name}`);
+      const result = await handleSaveSession(orchestrator, config, args);
+      if (result.success) {
+        return { content: [{ type: 'text' as const, text: JSON.stringify(result) }] };
+      }
+      return { isError: true, content: [{ type: 'text' as const, text: result.error ?? 'SAVE_ERROR' }] };
+    },
+  );
+
+  server.tool(
+    'load_session',
+    'Load a previously saved browser session. Must be called BEFORE the first navigate in a session.',
+    {
+      profile_name: z.string().describe('Profile name to load'),
+    },
+    async (args) => {
+      console.error(`[tool] load_session → ${args.profile_name}`);
+      const result = await handleLoadSession(orchestrator, config, args);
+      if (result.success) {
+        return { content: [{ type: 'text' as const, text: JSON.stringify(result) }] };
+      }
+      return { isError: true, content: [{ type: 'text' as const, text: result.error ?? 'LOAD_ERROR' }] };
+    },
+  );
+
+  server.tool(
+    'list_sessions',
+    'List all saved browser session profiles.',
+    {},
+    async () => {
+      console.error('[tool] list_sessions');
+      const result = await handleListSessions(config);
+      if (result.success) {
+        return { content: [{ type: 'text' as const, text: JSON.stringify(result.profiles) }] };
+      }
+      return { isError: true, content: [{ type: 'text' as const, text: result.error ?? 'LIST_ERROR' }] };
     },
   );
 
