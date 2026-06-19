@@ -152,8 +152,8 @@ function scaleImage(buffer: Buffer, width: number, height: number): Buffer {
   const pixels = width * height;
   const shrink = Math.min(MAX_LINEAR_PX / width, MAX_LINEAR_PX / height, Math.sqrt(MAX_PIXELS / pixels));
   if (shrink > 1) return buffer;
-  // For MVP, return original — Playwright's JPEG quality already compresses
-  // Full scaling would require sharp/canvas dependency
+  // For now return original — Playwright's JPEG quality already compresses
+  // Full scaling requires sharp dependency, deferred to when it's needed
   return buffer;
 }
 
