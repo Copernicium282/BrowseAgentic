@@ -9,8 +9,8 @@ COPY . .
 
 RUN npm run build
 
-RUN mkdir -p /app/sessions/videos
+RUN mkdir -p /app/sessions/videos /app/sessions/cache /app/sessions/profiles /app/sessions/overflow
 
-COPY config/omnibrowser.yaml /app/config/omnibrowser.yaml
+COPY config/browseagentic.yaml /app/config/browseagentic.yaml
 
 ENTRYPOINT ["node", "dist/index.js"]

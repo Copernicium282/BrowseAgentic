@@ -16,13 +16,11 @@ export async function handleSaveSession(
   config: BrowseAgenticConfig,
   input: SaveSessionInput,
 ): Promise<{ success: boolean; profile_name?: string; saved_path?: string; error?: string }> {
-  // Validate profile name
   if (!/^[a-zA-Z0-9_-]+$/.test(input.profile_name)) {
     return { success: false, error: 'Invalid profile name. Only alphanumeric, underscore, and hyphen allowed.' };
   }
 
   try {
-    const session = await orchestrator.getSession();
     const page = await orchestrator.getPage();
     const context = page.context();
     const storageState = await context.storageState();
@@ -52,6 +50,20 @@ export async function handleLoadSession(
     return { success: false, error: 'Invalid profile name.' };
   }
 
+  // Check if navigation has already happened (URL is not about:blank)
+  try {
+    const page = await orchestrator.getPage();
+    const url = page.url();
+    if (url !== 'about:blank' && url !== '') {
+      return {
+        success: false,
+        error: 'SESSION_ALREADY_STARTED: load_session must be called BEFORE the first navigate. Start a new session or reset the current one.',
+      };
+    }
+  } catch {
+    // No active page yet — OK to proceed
+  }
+
   const filePath = join(config.session.profiles_dir, `${input.profile_name}.json`);
   try {
     await fs.access(filePath);
@@ -61,8 +73,30 @@ export async function handleLoadSession(
 
   try {
     const storageState = JSON.parse(await fs.readFile(filePath, 'utf-8'));
-    // Note: Playwright requires storageState at context creation time
-    // For now, store it for next session reset
+
+    // Apply storage state to the current context
+    try {
+      const page = await orchestrator.getPage();
+      const context = page.context();
+      await context.addCookies(storageState.cookies ?? []);
+      // localStorage/sessionStorage require page-level access
+      if (storageState.origins && storageState.origins.length > 0) {
+        await page.evaluate((origins) => {
+          for (const origin of origins) {
+            for (const [key, value] of Object.entries(origin.storage ?? {})) {
+              try {
+                localStorage.setItem(key, value as string);
+              } catch {
+                // Cross-origin storage access may fail
+              }
+            }
+          }
+        }, storageState.origins);
+      }
+    } catch {
+      // Context not ready yet — store for next reset
+    }
+
     return {
       success: true,
       profile_name: input.profile_name,
