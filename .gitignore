@@ -2,3 +2,4 @@ node_modules/
 dist/
 sessions/videos/
 *.webm
+_test_sandbox/
