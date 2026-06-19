@@ -1,6 +1,6 @@
 # BrowseAgentic
 
-Standalone MCP server that gives AI agents a sandboxed browser with recursive self-improvement capabilities. Feature parity with Antigravity IDE 1.x browser automation (verified against v1.22.2/v1.23.2).
+Standalone MCP server that gives AI agents a sandboxed browser with recursive self-improvement capabilities. Full browser automation: navigate, observe, interact, scroll, screenshots, tab management, session persistence.
 
 ## Features
 

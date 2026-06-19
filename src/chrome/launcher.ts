@@ -21,9 +21,6 @@ const DEFAULT_USER_DATA_DIR = join(process.env.HOME ?? '/tmp', '.browseagentic',
 
 export function findChromeBinary(): string | null {
   const candidates = [
-    // Antigravity bundled Chrome
-    join(process.env.HOME ?? '', '.antigravity', 'chrome'),
-    '/tmp/Antigravity/chrome',
     // System Chrome
     '/usr/bin/google-chrome',
     '/usr/bin/google-chrome-stable',
