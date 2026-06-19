@@ -264,6 +264,80 @@ export function createServer(orchestrator: BrowserOrchestrator, config: BrowseAg
     },
   );
 
+  // Tab management tools
+  server.tool(
+    'open_tab',
+    'Open a new browser tab. Returns the tab ID for use with switch_tab.',
+    {
+      url: z.string().optional().describe('URL to open (omit for about:blank)'),
+    },
+    async (args) => {
+      console.error(`[tool] open_tab → ${args.url ?? 'about:blank'}`);
+      try {
+        const result = await orchestrator.openTab(args.url);
+        const page = result.page;
+        const title = await page.title().catch(() => '');
+        return { content: [{ type: 'text' as const, text: JSON.stringify({ tab_id: result.tab_id, url: page.url(), title }) }] };
+      } catch (err) {
+        return { isError: true, content: [{ type: 'text' as const, text: `OPEN_TAB_ERROR: ${err instanceof Error ? err.message : String(err)}` }] };
+      }
+    },
+  );
+
+  server.tool(
+    'switch_tab',
+    'Switch to a different tab by ID. All subsequent tools operate on the active tab.',
+    {
+      tab_id: z.number().describe('Tab ID to switch to'),
+    },
+    async (args) => {
+      console.error(`[tool] switch_tab → ${args.tab_id}`);
+      try {
+        await orchestrator.switchTab(args.tab_id);
+        return { content: [{ type: 'text' as const, text: JSON.stringify({ success: true, active_tab_id: args.tab_id }) }] };
+      } catch (err) {
+        return { isError: true, content: [{ type: 'text' as const, text: `SWITCH_TAB_ERROR: ${err instanceof Error ? err.message : String(err)}` }] };
+      }
+    },
+  );
+
+  server.tool(
+    'close_tab',
+    'Close a tab by ID. Cannot close the last remaining tab.',
+    {
+      tab_id: z.number().describe('Tab ID to close'),
+    },
+    async (args) => {
+      console.error(`[tool] close_tab → ${args.tab_id}`);
+      try {
+        const remaining = await orchestrator.closeTab(args.tab_id);
+        return { content: [{ type: 'text' as const, text: JSON.stringify({ success: true, remaining_tabs: remaining }) }] };
+      } catch (err) {
+        return { isError: true, content: [{ type: 'text' as const, text: `CLOSE_TAB_ERROR: ${err instanceof Error ? err.message : String(err)}` }] };
+      }
+    },
+  );
+
+  server.tool(
+    'list_tabs',
+    'List all open browser tabs with their IDs, URLs, titles, and active status.',
+    {},
+    async () => {
+      console.error('[tool] list_tabs');
+      const session = await orchestrator.getSession();
+      const tabs = [];
+      for (const [tabId, page] of session.tabs) {
+        tabs.push({
+          tab_id: tabId,
+          url: page.url(),
+          title: await page.title().catch(() => ''),
+          is_active: tabId === session.active_tab_id,
+        });
+      }
+      return { content: [{ type: 'text' as const, text: JSON.stringify(tabs) }] };
+    },
+  );
+
   return server;
 }
 

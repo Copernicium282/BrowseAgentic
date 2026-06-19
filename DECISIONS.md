@@ -1,52 +1,74 @@
 # Decisions
 
-## DOM overlays over canvas drawing
+## Phase 1 Decisions
+
+### DOM overlays over canvas drawing
 Used positioned `<div>` elements for SoM overlays instead of canvas. DOM overlays are more reliable across SPAs and don't require canvas coordinate mapping.
 
-## CDP for accessibility tree
+### CDP for accessibility tree
 Playwright's `page.accessibility.snapshot()` API was removed in newer versions. Using Chrome DevTools Protocol directly via `page.context().newCDPSession(page)` for reliable accessibility tree extraction.
 
-## Single session per server
+### Single session per server
 One `BrowserContext` + one `Page` per server instance. Simplifies state management. `resetSession()` creates a fresh context when needed.
 
-## No bundler
+### No bundler
 Using `tsc` directly. No webpack/esbuild needed for MVP. Keeps build simple.
 
-## stderr logging
+### stderr logging
 MCP uses stdout for JSON-RPC. All logs go to stderr to avoid protocol contamination.
 
-## eval_js has no additional restrictions
-Security guardrails at the network level are sufficient for MVP. The agent can execute arbitrary JS in the page context. Documented as a known tradeoff.
-
-## Video recording via Playwright built-in
+### Video recording via Playwright built-in
 Using Playwright's `recordVideo` context option rather than a custom recording solution. Each session gets its own subdirectory.
 
-## Stdio transport only
+### Stdio transport only
 MCP over stdio (JSON-RPC 2.0) for MVP. HTTP/SSE transport deferred to future work.
 
-## aria-ref element refs (from playwright-mcp)
-Using `e1`, `e2` format instead of sequential numbers. Matches playwright-mcp pattern. Stale-ref error message tells agent to "Try capturing new snapshot."
+---
 
-## Auto-snapshot-after-action (from playwright-mcp)
-Every `interact` call automatically returns fresh page state. Eliminates stale element issues. Adopted from Microsoft's playwright-mcp `response.setIncludeSnapshot()` pattern.
+## Phase 2 Decisions
 
-## Compact tree mode (from agent-browser)
-`compact=true` strips non-interactive nodes. Adopted from agent-browser's `--compact` flag. Reduces token usage by 50%+ on complex pages.
+### BrowseAgentic naming
+Project renamed from OmniBrowser to BrowseAgentic. All config, types, and env vars updated. Old `omnibrowser.yaml` kept for backward compatibility but `browseagentic.yaml` is the canonical config.
 
-## Cursor-interactive detection (from agent-browser + browser-use)
-JavaScript injection scans for `cursor:pointer`, `onclick`, `tabindex`, pseudo-content. Catches unlabeled icons and canvas widgets that AOM misses. Adopted from both agent-browser and browser-use.
+### Config v2 structure
+New config sections added: `budget`, `cache`, `rsi`, `tabs`, `session`. Old `security.allowed_paths`/`blocked_paths`/`allowed_commands` moved to `rsi` section. Old `server.console_level`/`secrets` moved to `security` section.
 
-## Bounding-box containment (from browser-use)
-Parent interactive elements (buttons, links) absorb child elements in output. Prevents duplicate addressing of same clickable region. Adopted from browser-use's containment filtering.
+### Per-tab buffers (breaking change)
+`SessionState.console_log_buffer` and `network_failure_buffer` changed from flat arrays to `Map<number, string[]>` keyed by tab_id. All tools updated to use `session.active_tab_id` for buffer access.
 
-## Path sandboxing for RSI tools
-Filesystem operations restricted to `allowed_paths` (default: project root). Symlink traversal blocked. `blocked_paths` excludes .git, node_modules, dist.
+### Pruning modules extracted
+AOM pipeline split into `pruning/paint-order.ts`, `pruning/role-pruning.ts`, `pruning/text-coalesce.ts`. Each is an independently testable pure function. Main `aom.ts` chains them in order.
 
-## Command allowlisting for RSI tools
-`run_command` limited to: npm, npx, tsc, git, node, tsx, ls, grep, find, diff, wc. No `shell: true` — arguments passed as array. 120s max timeout.
+### Response budget (partial implementation)
+Budget system implemented with element cap (20) and text truncation (4000 chars). Full 4-step layered shrink (console→image→elements→text) deferred — current implementation is sufficient for typical pages.
 
-## Git auto-prefix
-Commits from RSI tools auto-prefixed with `[self-improve]` for audit trail.
+### Cache TTL
+Cache entries expire after `cache.ttl_hours` (default 168 = 1 week). Checked on read, stale entries auto-deleted. Prevents serving stale selectors from redesigned sites.
 
-## Prior art research
-Key patterns adopted from: microsoft/playwright-mcp (auto-snapshot, aria-refs, image scaling), browserbase/stagehand (action caching — deferred), browser-use/browser-use (paint-order, bounding-box containment), vercel-labs/agent-browser (compact mode, cursor-interactive detection), Skyvern-AI/skyvern (token-aware output).
+### RSI sandbox root
+All RSI tools resolve paths relative to `rsi.sandbox_root` (default: `.`). Path traversal, symlink escapes, and protected patterns all enforced through `path_guard.ts`.
+
+### Binary file detection
+`read_file` checks first 8KB for null bytes. Binary files rejected with `BINARY_FILE` error. Prevents dumping garbage into agent context.
+
+### eval_js XSS modes
+Three modes: `warn` (default, logs warnings), `block` (rejects dangerous scripts), `off` (no detection). Configurable via `security.eval_js_xss_detection`. Not a security boundary — just a tripwire for accidental self-harm.
+
+### Session persistence caveat
+Profile files contain live session cookies. No encryption at rest in Phase 2. Documented limitation — operator's responsibility to secure the profiles directory.
+
+### Multi-tab popup auto-registration
+New tabs opened via `target="_blank"` or `window.open()` are automatically registered via `context.on('page')` event. Agent informed via `new_tab_opened` field in interact response.
+
+---
+
+## Prior Art Research
+Key patterns adopted from 8 repos via deep source code analysis:
+- microsoft/playwright-mcp: YAML output, depth limiting, generic pruning, console filtering, secret redaction
+- browser-use/browser-use: RectUnion paint-order filtering, 99% containment threshold
+- browserbase/stagehand: Action caching with SHA-256 keys, variable substitution, self-heal
+- vercel-labs/agent-browser: Compact tree algorithm, StaticText merging, invisible char stripping
+- Skyvern-AI/skyvern: PUA character replacement, name truncation, URL compression
+- remorses/playwriter: Color-coded overlays by element type
+- badchars/mcp-browser: Basic XSS detection, structured network logging
+- alexrwilliam/playwright-mcp-server: Response budget system, layered capping
