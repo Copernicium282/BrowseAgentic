@@ -3,14 +3,12 @@ server:
 
 browser:
   engine: "chromium"
-  headless: true
+  headless: false
   viewport:
-    width: 1280
-    height: 800
-  args:
-    - "--disable-gpu"
-    - "--disable-dev-shm-usage"
-    - "--no-sandbox"
+    width: 960
+    height: 1200
+  args: []
+    # - "--no-sandbox"  # Only needed when running as root
   timeout_ms: 30000
   # chrome_path: "/usr/bin/google-chrome"  # Optional: path to Chrome binary
   # cdp_port: 9222                          # Optional: connect to existing Chrome via CDP
