@@ -362,28 +362,84 @@ function buildSelector(node: AOMNode): string | null {
   return null;
 }
 
+// Rectangle class for paint-order filtering (from browser-use)
+class RectUnion {
+  private rects: Array<{ x1: number; y1: number; x2: number; y2: number }> = [];
+  private static MAX_RECTS = 5000;
+
+  contains(r: { x1: number; y1: number; x2: number; y2: number }): boolean {
+    if (this.rects.length === 0) return false;
+    let stack = [r];
+    for (const s of this.rects) {
+      const newStack: typeof stack = [];
+      for (const piece of stack) {
+        if (s.x1 <= piece.x1 && s.y1 <= piece.y1 && s.x2 >= piece.x2 && s.y2 >= piece.y2) {
+          continue; // piece completely covered
+        }
+        // Split piece around s
+        const yLo = Math.max(piece.y1, s.y1);
+        const yHi = Math.min(piece.y2, s.y2);
+        if (piece.y1 < s.y1) newStack.push({ x1: piece.x1, y1: piece.y1, x2: piece.x2, y2: s.y1 });
+        if (s.y2 < piece.y2) newStack.push({ x1: piece.x1, y1: s.y2, x2: piece.x2, y2: piece.y2 });
+        if (piece.x1 < s.x1 && yLo < yHi) newStack.push({ x1: piece.x1, y1: yLo, x2: s.x1, y2: yHi });
+        if (s.x2 < piece.x2 && yLo < yHi) newStack.push({ x1: s.x2, y1: yLo, x2: piece.x2, y2: yHi });
+      }
+      stack = newStack;
+      if (stack.length === 0) return true;
+    }
+    return false;
+  }
+
+  add(r: { x1: number; y1: number; x2: number; y2: number }): boolean {
+    if (this.rects.length >= RectUnion.MAX_RECTS) return false;
+    if (this.contains(r)) return false;
+    this.rects.push(r);
+    return true;
+  }
+}
+
+// Check if child rect is contained within parent rect (99% threshold from browser-use)
+function isContained(child: Rect, parent: Rect, threshold = 0.99): boolean {
+  const xOverlap = Math.max(0, Math.min(child.x + child.width, parent.x + parent.width) - Math.max(child.x, parent.x));
+  const yOverlap = Math.max(0, Math.min(child.y + child.height, parent.y + parent.height) - Math.max(child.y, parent.y));
+  const intersectionArea = xOverlap * yOverlap;
+  const childArea = child.width * child.height;
+  if (childArea === 0) return false;
+  return intersectionArea / childArea >= threshold;
+}
+
+// Exception rules from browser-use: never exclude these
+function shouldNeverExclude(node: AOMNode): boolean {
+  // Form elements always need individual interaction
+  const formRoles = new Set(['textbox', 'searchbox', 'combobox', 'checkbox', 'radio', 'slider', 'spinbutton']);
+  if (formRoles.has(node.role)) return true;
+  // Elements with explicit ARIA roles suggesting interactivity
+  const interactiveRoles = new Set(['button', 'link', 'checkbox', 'radio', 'tab', 'menuitem', 'option']);
+  if (interactiveRoles.has(node.role)) return true;
+  return false;
+}
+
 function filterByContainment(nodes: AOMNode[]): AOMNode[] {
-  const clickableRoles = new Set(['button', 'link', 'checkbox', 'radio', 'menuitem', 'tab']);
+  const propagatingRoles = new Set(['button', 'link', 'checkbox', 'radio', 'menuitem', 'tab', 'combobox']);
   const result: AOMNode[] = [];
   const removed = new Set<number>();
 
   for (let i = 0; i < nodes.length; i++) {
     if (removed.has(i)) continue;
     const node = nodes[i];
-    if (!clickableRoles.has(node.role)) {
+
+    // Only propagating elements absorb children
+    if (!propagatingRoles.has(node.role) || node.rect.width === 0) {
       result.push(node);
       continue;
     }
-    // Check if any other node is fully contained
+
+    // Check if any other node is contained (99% threshold)
     for (let j = 0; j < nodes.length; j++) {
       if (i === j || removed.has(j)) continue;
       const other = nodes[j];
-      if (
-        other.rect.x >= node.rect.x &&
-        other.rect.y >= node.rect.y &&
-        other.rect.x + other.rect.width <= node.rect.x + node.rect.width &&
-        other.rect.y + other.rect.height <= node.rect.y + node.rect.height
-      ) {
+      if (shouldNeverExclude(other)) continue;
+      if (isContained(other.rect, node.rect)) {
         removed.add(j);
       }
     }
