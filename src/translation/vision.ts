@@ -32,6 +32,17 @@ export async function captureVision(
     }
   }
 
+  // Color scheme by element type (from playwriter)
+  const ROLE_COLORS: Record<string, [string, string, string]> = {
+    link: ['#FFF785', '#FFC542', '#E3BE23'],
+    button: ['#FFE0B2', '#FFCC80', '#FFB74D'],
+    textbox: ['#FFCDD2', '#EF9A9A', '#E57373'],
+    combobox: ['#F8BBD0', '#F48FB1', '#F06292'],
+    checkbox: ['#C8E6C9', '#A5D6A7', '#81C784'],
+    radio: ['#C8E6C9', '#A5D6A7', '#81C784'],
+  };
+  const DEFAULT_COLORS: [string, string, string] = ['#FFF9C4', '#FFF59D', '#FFEB3B'];
+
   // Inject overlay divs with ref labels
   const overlayIds: string[] = [];
   for (let i = 0; i < inViewport.length; i++) {
@@ -41,9 +52,11 @@ export async function captureVision(
 
     const overlayId = `om-overlay-${i}`;
     const ref = `e${i + 1}`;
+    const role = await el.getAttribute('role') ?? '';
+    const colors = ROLE_COLORS[role] ?? DEFAULT_COLORS;
 
     await page.evaluate(
-      ({ id, x, y, w, h, lbl }) => {
+      ({ id, x, y, w, h, lbl, gradTop, gradBottom, border }) => {
         const div = document.createElement('div');
         div.id = id;
         div.style.cssText = `
@@ -53,7 +66,7 @@ export async function captureVision(
           width: ${w}px;
           height: ${h}px;
           background: rgba(255, 255, 255, 0.15);
-          border: 2px solid #000;
+          border: 2px solid ${border};
           z-index: 999999;
           pointer-events: none;
           display: flex;
@@ -62,18 +75,20 @@ export async function captureVision(
         `;
         const badge = document.createElement('span');
         badge.style.cssText = `
-          background: #000;
-          color: #fff;
-          font: bold 12px monospace;
+          background: linear-gradient(to bottom, ${gradTop} 0%, ${gradBottom} 100%);
+          color: black;
+          font: bold 12px Helvetica, Arial, sans-serif;
           padding: 1px 4px;
-          border-radius: 2px;
+          border-radius: 3px;
+          border: 1px solid ${border};
           line-height: 16px;
+          text-shadow: 0 1px 0 rgba(255, 255, 255, 0.6);
         `;
         badge.textContent = lbl;
         div.appendChild(badge);
         document.body.appendChild(div);
       },
-      { id: overlayId, x: box.x, y: box.y, w: box.width, h: box.height, lbl: ref },
+      { id: overlayId, x: box.x, y: box.y, w: box.width, h: box.height, lbl: ref, gradTop: colors[0], gradBottom: colors[1], border: colors[2] },
     );
 
     overlayIds.push(overlayId);
