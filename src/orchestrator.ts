@@ -85,16 +85,25 @@ export class BrowserOrchestrator {
     if (!this.config.artifacts.capture_network_failures) return;
 
     this.page.on('requestfailed', (req) => {
-      this.session!.network_failure_buffer.push(
-        `${req.method()} ${req.url()} — ${req.failure()?.errorText ?? 'unknown'}`
-      );
+      this.session!.network_failure_buffer.push(JSON.stringify({
+        timestamp: new Date().toISOString(),
+        type: 'request_failed',
+        method: req.method(),
+        url: req.url(),
+        error: req.failure()?.errorText ?? 'unknown',
+      }));
     });
 
     this.page.on('response', (res) => {
       if (res.status() >= 400) {
-        this.session!.network_failure_buffer.push(
-          `${res.request().method()} ${res.url()} — HTTP ${res.status()}`
-        );
+        this.session!.network_failure_buffer.push(JSON.stringify({
+          timestamp: new Date().toISOString(),
+          type: 'http_error',
+          method: res.request().method(),
+          url: res.url(),
+          status: res.status(),
+          statusText: res.statusText(),
+        }));
       }
     });
   }
