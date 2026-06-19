@@ -62,6 +62,11 @@ export interface BrowseAgenticConfig {
   session: {
     profiles_dir: string;
   };
+  dev_mode: {
+    enabled: boolean;
+    allowed_local_ports: number[];
+    allowed_local_hosts: string[];
+  };
 }
 
 export interface AOMNode {

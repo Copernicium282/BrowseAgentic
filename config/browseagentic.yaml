@@ -97,3 +97,10 @@ tabs:
 
 session:
   profiles_dir: "./sessions/profiles"
+
+dev_mode:
+  enabled: false
+  allowed_local_ports: []
+  allowed_local_hosts:
+    - "localhost"
+    - "127.0.0.1"

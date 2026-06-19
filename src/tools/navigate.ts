@@ -28,7 +28,7 @@ export async function handleNavigate(
 
   const url = new URL(input.url);
   const { isBlocked } = await import('../security/guardrails.js');
-  if (isBlocked(url, config.security)) {
+  if (isBlocked(url, config)) {
     return { success: false, error: 'BLOCKED', reason: `URL ${input.url} blocked by security guardrails` };
   }
 

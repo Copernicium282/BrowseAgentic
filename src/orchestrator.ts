@@ -244,7 +244,7 @@ export class BrowserOrchestrator {
       const url = new URL(route.request().url());
       const resourceTypes = ['document', 'script', 'xhr', 'fetch', 'stylesheet', 'image', 'font', 'media'];
       if (resourceTypes.includes(route.request().resourceType())) {
-        if (isBlocked(url, this.config!.security)) {
+        if (isBlocked(url, this.config!)) {
           route.abort('blockedbyclient');
           const activeTabId = session.active_tab_id;
           session.network_failure_buffer.get(activeTabId)?.push(`BLOCKED: ${url.href}`);

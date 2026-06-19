@@ -60,6 +60,9 @@ function validateConfig(parsed: Record<string, unknown>, filePath: string): Brow
   if (!config.session) {
     config.session = { profiles_dir: './sessions/profiles' };
   }
+  if (!config.dev_mode) {
+    config.dev_mode = { enabled: false, allowed_local_ports: [], allowed_local_hosts: ['localhost', '127.0.0.1'] };
+  }
   if (!config.security.secret_redaction_patterns) {
     config.security.secret_redaction_patterns = [];
   }
