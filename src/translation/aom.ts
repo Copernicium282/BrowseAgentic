@@ -72,7 +72,10 @@ export async function extractAOM(
   });
 
   // Render as YAML-indented snapshot
-  const snapshot = renderSnapshot(tree, compact, depth);
+  let snapshot = renderSnapshot(tree, compact, depth);
+  if (compact) {
+    snapshot = compactTree(snapshot);
+  }
   const hash = computeHash(nodes);
   session.last_aom_hash = hash;
 
@@ -165,35 +168,73 @@ function buildTree(axNodes: AXNode[]): TreeNode {
   return root;
 }
 
+// Invisible characters to strip (from agent-browser)
+const INVISIBLE_CHARS = /[\uFEFF\u200B\u200C\u200D\u2060\u00A0]/g;
+
+function stripInvisible(str: string): string {
+  return str.replace(INVISIBLE_CHARS, '');
+}
+
 function pruneTree(node: TreeNode): void {
   const pruned: (TreeNode | string)[] = [];
 
   for (const child of node.children) {
     if (typeof child === 'string') {
-      pruned.push(child);
+      const stripped = stripInvisible(child);
+      if (stripped) pruned.push(stripped);
       continue;
     }
 
     pruneTree(child);
 
-    // Collapse empty generic wrappers
-    if (child.role === 'generic' && !child.name && child.children.length === 1) {
-      const only = child.children[0];
-      if (typeof only === 'string') {
-        pruned.push(only);
-      } else {
+    // Skip empty StaticText nodes
+    if (child.role === 'StaticText' && !stripInvisible(child.name)) continue;
+
+    // Collapse empty generic wrappers (from agent-browser)
+    if (child.role === 'generic' && !child.name && child.children.length <= 1) {
+      if (child.children.length === 1) {
+        const only = child.children[0];
         pruned.push(only);
       }
       continue;
     }
 
+    // Skip InlineTextBox (from agent-browser)
+    if (child.role === 'InlineTextBox') continue;
+
     pruned.push(child);
+  }
+
+  // Merge consecutive StaticText siblings (from agent-browser)
+  const merged: (TreeNode | string)[] = [];
+  let i = 0;
+  while (i < pruned.length) {
+    const child = pruned[i];
+    if (typeof child !== 'string' && child.role === 'StaticText') {
+      // Collect consecutive StaticText nodes
+      let text = child.name;
+      let j = i + 1;
+      while (j < pruned.length) {
+        const next = pruned[j];
+        if (typeof next !== 'string' && next.role === 'StaticText') {
+          text += next.name;
+          j++;
+        } else {
+          break;
+        }
+      }
+      merged.push(text);
+      i = j;
+    } else {
+      merged.push(child);
+      i++;
+    }
   }
 
   // Coalesce adjacent text nodes
   const coalesced: (TreeNode | string)[] = [];
   let textBuffer = '';
-  for (const child of pruned) {
+  for (const child of merged) {
     if (typeof child === 'string') {
       textBuffer += child;
     } else {
@@ -206,12 +247,15 @@ function pruneTree(node: TreeNode): void {
   }
   if (textBuffer) coalesced.push(textBuffer);
 
-  // Remove children that duplicate the node's name
-  if (coalesced.length === 1 && typeof coalesced[0] === 'string' && coalesced[0] === node.name) {
-    node.children = [];
-  } else {
-    node.children = coalesced;
+  // Deduplicate: if single StaticText child matches parent name, remove child (from agent-browser)
+  if (coalesced.length === 1 && typeof coalesced[0] === 'string') {
+    if (coalesced[0] === node.name) {
+      node.children = [];
+      return;
+    }
   }
+
+  node.children = coalesced;
 }
 
 async function collectFlatNodes(
@@ -348,6 +392,39 @@ function escapeYamlString(str: string): string {
     .replace(/\n/g, '\\n')
     .replace(/\r/g, '\\r')
     .replace(/\t/g, '\\t');
+}
+
+// Compact tree post-processing (from agent-browser)
+// Remove lines without ref= or : (values) or quoted names, preserve ancestors
+function compactTree(output: string): string {
+  const lines = output.split('\n');
+  if (lines.length === 0) return output;
+
+  const keep = new Array(lines.length).fill(false);
+
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    // Keep lines with refs, values, or quoted names (headings, links, etc.)
+    if (line.includes('[ref=') || line.includes(': ') || /"[^"]+"/.test(line)) {
+      keep[i] = true;
+      // Mark ancestors
+      const myIndent = countIndent(line);
+      for (let j = i - 1; j >= 0; j--) {
+        const ancestorIndent = countIndent(lines[j]);
+        if (ancestorIndent < myIndent) {
+          keep[j] = true;
+          if (ancestorIndent === 0) break;
+        }
+      }
+    }
+  }
+
+  return lines.filter((_, i) => keep[i]).join('\n');
+}
+
+function countIndent(line: string): number {
+  const trimmed = line.trimStart();
+  return (line.length - trimmed.length) / 2;
 }
 
 function buildSelector(node: AOMNode): string | null {
