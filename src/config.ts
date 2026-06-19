@@ -1,12 +1,12 @@
 import { readFileSync } from 'fs';
 import { resolve } from 'path';
 import yaml from 'js-yaml';
-import type { OmniBrowserConfig } from './types.js';
+import type { BrowseAgenticConfig } from './types.js';
 
-const DEFAULT_CONFIG_PATH = './config/omnibrowser.yaml';
+const DEFAULT_CONFIG_PATH = './config/browseagentic.yaml';
 
-export function loadConfig(configPath?: string): OmniBrowserConfig {
-  const envPath = process.env.OMNIBROWSER_CONFIG;
+export function loadConfig(configPath?: string): BrowseAgenticConfig {
+  const envPath = process.env.BROWSEAGENTIC_CONFIG;
   const filePath = resolve(configPath ?? envPath ?? DEFAULT_CONFIG_PATH);
 
   const raw = readFileSync(filePath, 'utf-8');
@@ -15,7 +15,7 @@ export function loadConfig(configPath?: string): OmniBrowserConfig {
   return validateConfig(parsed, filePath);
 }
 
-function validateConfig(parsed: Record<string, unknown>, filePath: string): OmniBrowserConfig {
+function validateConfig(parsed: Record<string, unknown>, filePath: string): BrowseAgenticConfig {
   if (!parsed || typeof parsed !== 'object') {
     throw new Error(`Config file ${filePath} is empty or not a valid YAML object`);
   }
@@ -37,5 +37,38 @@ function validateConfig(parsed: Record<string, unknown>, filePath: string): Omni
     throw new Error(`Only chromium engine is supported, got: "${browser.engine}"`);
   }
 
-  return parsed as unknown as OmniBrowserConfig;
+  const config = parsed as unknown as BrowseAgenticConfig;
+
+  // Apply defaults for new sections
+  if (!config.budget) {
+    config.budget = { max_elements: 20, per_field_char_cap: 2000, total_response_char_cap: 4000, overflow_dir: './sessions/overflow' };
+  }
+  if (!config.cache) {
+    config.cache = { enabled: true, backend: 'filesystem', dir: './sessions/cache', ttl_hours: 168 };
+  }
+  if (!config.rsi) {
+    config.rsi = {
+      sandbox_root: '.', protected_patterns: ['**/.git/**', '**/.env', '**/*.key', '**/*.pem'],
+      hidden_patterns: ['.git', 'node_modules', '__pycache__', '.venv'],
+      command_allowlist: ['ls', 'cat', 'head', 'tail', 'wc', 'find', 'grep', 'pwd', 'tree', 'file', 'git status', 'git diff', 'git log', 'git add', 'git commit', 'git branch', 'git show', 'npm install', 'npm run', 'npm test', 'npm ci', 'node', 'npx tsc', 'python3', 'pip install', 'pip3 install', 'tsc'],
+      command_timeout_ms: 30000, max_stdout_chars: 50000,
+    };
+  }
+  if (!config.tabs) {
+    config.tabs = { max_open_tabs: 10 };
+  }
+  if (!config.session) {
+    config.session = { profiles_dir: './sessions/profiles' };
+  }
+  if (!config.security.secret_redaction_patterns) {
+    config.security.secret_redaction_patterns = [];
+  }
+  if (!config.security.eval_js_xss_detection) {
+    config.security.eval_js_xss_detection = 'warn';
+  }
+  if (!config.security.console_capture_level) {
+    config.security.console_capture_level = 'warning';
+  }
+
+  return config;
 }

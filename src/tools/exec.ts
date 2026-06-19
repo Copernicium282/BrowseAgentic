@@ -1,6 +1,6 @@
 import { execFile } from 'child_process';
 import { validateCommand } from '../security/command_guard.js';
-import type { OmniBrowserConfig } from '../types.js';
+import type { BrowseAgenticConfig } from '../types.js';
 
 export interface ExecInput {
   command: string;
@@ -18,11 +18,11 @@ export interface ExecResult {
 }
 
 export async function handleExec(
-  config: OmniBrowserConfig,
+  config: BrowseAgenticConfig,
   input: ExecInput,
 ): Promise<ExecResult> {
   const args = input.args ?? [];
-  const error = validateCommand(input.command, args, config.security);
+  const error = validateCommand(input.command, args, config.rsi);
   if (error) return { success: false, error: `BLOCKED: ${error}` };
 
   const timeout = Math.min(input.timeout_ms ?? 30000, 120000);

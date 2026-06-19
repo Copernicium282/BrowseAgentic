@@ -1,6 +1,6 @@
 import { execFile } from 'child_process';
 import { validateCommand } from '../security/command_guard.js';
-import type { OmniBrowserConfig } from '../types.js';
+import type { BrowseAgenticConfig } from '../types.js';
 
 export interface GitInput {
   action: 'status' | 'diff' | 'log' | 'commit' | 'branch' | 'add';
@@ -16,11 +16,11 @@ export interface GitResult {
 }
 
 export async function handleGit(
-  config: OmniBrowserConfig,
+  config: BrowseAgenticConfig,
   input: GitInput,
   cwd?: string,
 ): Promise<GitResult> {
-  const error = validateCommand('git', [input.action], config.security);
+  const error = validateCommand('git', [input.action], config.rsi);
   if (error) return { success: false, error: `BLOCKED: ${error}` };
 
   const args: string[] = [];

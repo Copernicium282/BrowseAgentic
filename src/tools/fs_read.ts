@@ -1,6 +1,6 @@
 import { readFileSync } from 'fs';
 import { resolveAndValidate } from '../security/path_guard.js';
-import type { OmniBrowserConfig } from '../types.js';
+import type { BrowseAgenticConfig } from '../types.js';
 
 export interface FSReadInput {
   path: string;
@@ -8,10 +8,10 @@ export interface FSReadInput {
 }
 
 export async function handleFSRead(
-  config: OmniBrowserConfig,
+  config: BrowseAgenticConfig,
   input: FSReadInput,
 ): Promise<{ success: boolean; content?: string; error?: string }> {
-  const { path: validPath, error } = resolveAndValidate(input.path, config.security);
+  const { path: validPath, error } = resolveAndValidate(input.path, config.rsi);
   if (error) return { success: false, error };
 
   try {

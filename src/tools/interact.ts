@@ -57,8 +57,11 @@ export async function handleInteract(
     };
   }
 
-  const consoleBefore = session.console_log_buffer.length;
-  const networkBefore = session.network_failure_buffer.length;
+  const tabId = session.active_tab_id;
+  const consoleBuf = session.console_log_buffer.get(tabId) ?? [];
+  const networkBuf = session.network_failure_buffer.get(tabId) ?? [];
+  const consoleBefore = consoleBuf.length;
+  const networkBefore = networkBuf.length;
 
   try {
     const selector = elementEntry.selector ?? buildFallbackSelector(elementEntry.rect);
@@ -99,8 +102,8 @@ export async function handleInteract(
       }
     }
 
-    const consoleAlerts = session.console_log_buffer.splice(consoleBefore);
-    const networkAlerts = session.network_failure_buffer.splice(networkBefore);
+    const consoleAlerts = consoleBuf.splice(consoleBefore);
+    const networkAlerts = networkBuf.splice(networkBefore);
     const domChanged = await checkStaleness(page, session);
     const snapshot = await takeSnapshot(page, session, session.last_modality ?? 'text');
 

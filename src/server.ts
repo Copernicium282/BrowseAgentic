@@ -1,7 +1,7 @@
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { z } from 'zod';
-import type { OmniBrowserConfig } from './types.js';
+import type { BrowseAgenticConfig } from './types.js';
 import type { BrowserOrchestrator } from './orchestrator.js';
 import { handleNavigate } from './tools/navigate.js';
 import { handleObserve } from './tools/observe.js';
@@ -14,7 +14,7 @@ import { handleFSList } from './tools/fs_list.js';
 import { handleExec } from './tools/exec.js';
 import { handleGit } from './tools/git.js';
 
-export function createServer(orchestrator: BrowserOrchestrator, config: OmniBrowserConfig): McpServer {
+export function createServer(orchestrator: BrowserOrchestrator, config: BrowseAgenticConfig): McpServer {
   const server = new McpServer({
     name: 'browseagentic',
     version: '0.2.0',

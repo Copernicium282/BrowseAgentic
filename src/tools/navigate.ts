@@ -1,4 +1,4 @@
-import type { OmniBrowserConfig } from '../types.js';
+import type { BrowseAgenticConfig } from '../types.js';
 import type { BrowserOrchestrator } from '../orchestrator.js';
 
 export interface NavigateInput {
@@ -19,7 +19,7 @@ export interface NavigateResult {
 
 export async function handleNavigate(
   orchestrator: BrowserOrchestrator,
-  config: OmniBrowserConfig,
+  config: BrowseAgenticConfig,
   input: NavigateInput,
 ): Promise<NavigateResult> {
   if (!input.url.startsWith('http://') && !input.url.startsWith('https://')) {

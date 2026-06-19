@@ -1,6 +1,6 @@
-import type { OmniBrowserConfig } from '../types.js';
+import type { BrowseAgenticConfig } from '../types.js';
 
-export function isBlocked(url: URL, security: OmniBrowserConfig['security']): boolean {
+export function isBlocked(url: URL, security: BrowseAgenticConfig['security']): boolean {
   const hostname = url.hostname;
 
   if (url.protocol !== 'http:' && url.protocol !== 'https:') {

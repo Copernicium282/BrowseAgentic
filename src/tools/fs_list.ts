@@ -1,7 +1,7 @@
 import { readdirSync, statSync } from 'fs';
 import { join } from 'path';
 import { resolveAndValidate } from '../security/path_guard.js';
-import type { OmniBrowserConfig } from '../types.js';
+import type { BrowseAgenticConfig } from '../types.js';
 
 export interface FSListInput {
   path: string;
@@ -9,10 +9,10 @@ export interface FSListInput {
 }
 
 export async function handleFSList(
-  config: OmniBrowserConfig,
+  config: BrowseAgenticConfig,
   input: FSListInput,
 ): Promise<{ success: boolean; entries?: string[]; error?: string }> {
-  const { path: validPath, error } = resolveAndValidate(input.path, config.security);
+  const { path: validPath, error } = resolveAndValidate(input.path, config.rsi);
   if (error) return { success: false, error };
 
   try {

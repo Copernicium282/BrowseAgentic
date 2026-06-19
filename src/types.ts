@@ -1,15 +1,13 @@
+import type { Page } from 'playwright';
+
 export type Modality = 'vision' | 'text';
-
 export type ActionType = 'click' | 'type' | 'hover' | 'clear';
-
 export type ScrollDirection = 'up' | 'down' | 'left' | 'right';
+export type EvalJSXSSMode = 'warn' | 'block' | 'off';
 
-export interface OmniBrowserConfig {
+export interface BrowseAgenticConfig {
   server: {
     transport: 'stdio';
-    console_level: 'error' | 'warning' | 'info' | 'debug';
-    secrets: Record<string, string>;
-    cache_dir?: string;
   };
   browser: {
     engine: 'chromium';
@@ -22,9 +20,9 @@ export interface OmniBrowserConfig {
     block_localhost: boolean;
     blocked_domains: string[];
     allowed_domains: string[];
-    allowed_paths: string[];
-    blocked_paths: string[];
-    allowed_commands: string[];
+    secret_redaction_patterns: string[];
+    eval_js_xss_detection: EvalJSXSSMode;
+    console_capture_level: 'error' | 'warning' | 'info' | 'debug';
   };
   artifacts: {
     record_video: boolean;
@@ -34,6 +32,32 @@ export interface OmniBrowserConfig {
   };
   fallback_vision: {
     enabled: boolean;
+  };
+  budget: {
+    max_elements: number;
+    per_field_char_cap: number;
+    total_response_char_cap: number;
+    overflow_dir: string;
+  };
+  cache: {
+    enabled: boolean;
+    backend: 'memory' | 'filesystem';
+    dir: string;
+    ttl_hours: number;
+  };
+  rsi: {
+    sandbox_root: string;
+    protected_patterns: string[];
+    hidden_patterns: string[];
+    command_allowlist: string[];
+    command_timeout_ms: number;
+    max_stdout_chars: number;
+  };
+  tabs: {
+    max_open_tabs: number;
+  };
+  session: {
+    profiles_dir: string;
   };
 }
 
@@ -77,9 +101,58 @@ export interface ObservationPayload {
 export interface SessionState {
   session_id: string;
   created_at: number;
-  console_log_buffer: string[];
-  network_failure_buffer: string[];
+  tabs: Map<number, Page>;
+  active_tab_id: number;
+  console_log_buffer: Map<number, string[]>;
+  network_failure_buffer: Map<number, string[]>;
   last_aom_hash: string | null;
-  element_map: Map<string, { selector?: string; rect: AOMNode['rect'] }>;
+  element_map: Map<string, { selector?: string; rect: AOMNode['rect']; full_url?: string }>;
   last_modality: Modality | null;
+}
+
+export interface CacheEntry {
+  key: string;
+  instruction: string;
+  url_origin_path: string;
+  variable_keys: string[];
+  selector_strategy: { type: 'role_name' | 'css'; role?: string; name?: string; nth?: number; css?: string };
+  created_at: number;
+  last_used_at: number;
+}
+
+export interface TabInfo {
+  tab_id: number;
+  url: string;
+  title: string;
+  is_active: boolean;
+}
+
+export interface RSIFileResult {
+  success: boolean;
+  content?: string;
+  truncated?: boolean;
+  size_bytes?: number;
+  error?: string;
+}
+
+export interface RSICommandResult {
+  success: boolean;
+  stdout: string;
+  stderr: string;
+  exit_code: number;
+  timed_out: boolean;
+  error?: string;
+}
+
+export interface SessionProfile {
+  name: string;
+  saved_at: string;
+  size_bytes: number;
+}
+
+export interface BudgetConfig {
+  max_elements: number;
+  per_field_char_cap: number;
+  total_response_char_cap: number;
+  overflow_dir: string;
 }

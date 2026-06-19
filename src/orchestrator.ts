@@ -1,17 +1,17 @@
 import { chromium, type Browser, type BrowserContext, type Page } from 'playwright';
-import type { OmniBrowserConfig, SessionState, AOMNode } from './types.js';
+import type { BrowseAgenticConfig, SessionState } from './types.js';
 import { randomUUID } from 'crypto';
 import { ActCache, CacheStorage } from './cache/index.js';
 
 export class BrowserOrchestrator {
   private browser: Browser | null = null;
   private context: BrowserContext | null = null;
-  private page: Page | null = null;
   private session: SessionState | null = null;
-  private config: OmniBrowserConfig | null = null;
+  private config: BrowseAgenticConfig | null = null;
   private actCache: ActCache | null = null;
+  private nextTabId = 1;
 
-  async init(config: OmniBrowserConfig): Promise<void> {
+  async init(config: BrowseAgenticConfig): Promise<void> {
     this.config = config;
     this.browser = await chromium.launch({
       headless: config.browser.headless,
@@ -19,8 +19,7 @@ export class BrowserOrchestrator {
       channel: 'chromium',
     });
 
-    // Initialize action cache
-    const cacheDir = config.server.cache_dir;
+    const cacheDir = config.cache.backend === 'filesystem' ? config.cache.dir : undefined;
     this.actCache = new ActCache({
       storage: cacheDir ? CacheStorage.create(cacheDir) : CacheStorage.createMemory(),
       domSettleTimeoutMs: config.browser.timeout_ms,
@@ -43,49 +42,56 @@ export class BrowserOrchestrator {
       recordVideo: videoDir ? { dir: videoDir } : undefined,
     });
 
-    this.page = await this.context.newPage();
-    this.page.setDefaultTimeout(this.config.browser.timeout_ms);
+    const page = await this.context.newPage();
+    page.setDefaultTimeout(this.config.browser.timeout_ms);
+
+    const tabId = this.nextTabId++;
+    const tabs = new Map<number, Page>();
+    tabs.set(tabId, page);
 
     this.session = {
       session_id: sessionId,
       created_at: Date.now(),
-      console_log_buffer: [],
-      network_failure_buffer: [],
+      tabs,
+      active_tab_id: tabId,
+      console_log_buffer: new Map([[tabId, []]]),
+      network_failure_buffer: new Map([[tabId, []]]),
       last_aom_hash: null,
       element_map: new Map(),
       last_modality: null,
     };
 
-    this.setupConsoleCapture();
-    this.setupNetworkCapture();
+    this.setupConsoleCapture(page, tabId);
+    this.setupNetworkCapture(page, tabId);
+    this.setupPopupCapture();
   }
 
-  private setupConsoleCapture(): void {
-    if (!this.page || !this.session || !this.config) return;
+  private setupConsoleCapture(page: Page, tabId: number): void {
+    if (!this.session || !this.config) return;
     if (!this.config.artifacts.capture_console_errors) return;
 
-    const level = this.config.server.console_level ?? 'warning';
+    const level = this.config.security.console_capture_level ?? 'warning';
     const levelOrder = ['error', 'warning', 'info', 'debug'];
     const thresholdIdx = levelOrder.indexOf(level);
 
-    this.page.on('console', (msg) => {
+    page.on('console', (msg) => {
       const msgType = msg.type();
       let msgIdx = levelOrder.indexOf(msgType);
-      if (msgIdx === -1) msgIdx = 2; // default to info
+      if (msgIdx === -1) msgIdx = 2;
       if (msgIdx <= thresholdIdx) {
         let text = msg.text();
         text = this.redactSecrets(text);
-        this.session!.console_log_buffer.push(`[${msgType}] ${text}`);
+        this.session!.console_log_buffer.get(tabId)?.push(`[${msgType}] ${text}`);
       }
     });
   }
 
-  private setupNetworkCapture(): void {
-    if (!this.page || !this.session || !this.config) return;
+  private setupNetworkCapture(page: Page, tabId: number): void {
+    if (!this.session || !this.config) return;
     if (!this.config.artifacts.capture_network_failures) return;
 
-    this.page.on('requestfailed', (req) => {
-      this.session!.network_failure_buffer.push(JSON.stringify({
+    page.on('requestfailed', (req) => {
+      this.session!.network_failure_buffer.get(tabId)?.push(JSON.stringify({
         timestamp: new Date().toISOString(),
         type: 'request_failed',
         method: req.method(),
@@ -94,9 +100,9 @@ export class BrowserOrchestrator {
       }));
     });
 
-    this.page.on('response', (res) => {
+    page.on('response', (res) => {
       if (res.status() >= 400) {
-        this.session!.network_failure_buffer.push(JSON.stringify({
+        this.session!.network_failure_buffer.get(tabId)?.push(JSON.stringify({
           timestamp: new Date().toISOString(),
           type: 'http_error',
           method: res.request().method(),
@@ -108,9 +114,23 @@ export class BrowserOrchestrator {
     });
   }
 
+  private setupPopupCapture(): void {
+    if (!this.context || !this.session) return;
+    this.context.on('page', (page) => {
+      const tabId = this.nextTabId++;
+      this.session!.tabs.set(tabId, page);
+      this.session!.console_log_buffer.set(tabId, []);
+      this.session!.network_failure_buffer.set(tabId, []);
+      this.setupConsoleCapture(page, tabId);
+      this.setupNetworkCapture(page, tabId);
+    });
+  }
+
   async getPage(): Promise<Page> {
-    if (!this.page) throw new Error('No active page — call init() first');
-    return this.page;
+    if (!this.session) throw new Error('No active session — call init() first');
+    const page = this.session.tabs.get(this.session.active_tab_id);
+    if (!page) throw new Error('Active tab not found');
+    return page;
   }
 
   async getSession(): Promise<SessionState> {
@@ -122,15 +142,56 @@ export class BrowserOrchestrator {
     return this.actCache;
   }
 
+  async openTab(url?: string): Promise<{ tab_id: number; page: Page }> {
+    if (!this.context || !this.session) throw new Error('No active session');
+    if (this.session.tabs.size >= (this.config?.tabs.max_open_tabs ?? 10)) {
+      throw new Error('Maximum tab limit reached');
+    }
+    const page = await this.context.newPage();
+    if (this.config) page.setDefaultTimeout(this.config.browser.timeout_ms);
+    const tabId = this.nextTabId++;
+    this.session.tabs.set(tabId, page);
+    this.session.console_log_buffer.set(tabId, []);
+    this.session.network_failure_buffer.set(tabId, []);
+    this.setupConsoleCapture(page, tabId);
+    this.setupNetworkCapture(page, tabId);
+    if (url) await page.goto(url);
+    return { tab_id: tabId, page };
+  }
+
+  async switchTab(tabId: number): Promise<void> {
+    if (!this.session) throw new Error('No active session');
+    if (!this.session.tabs.has(tabId)) throw new Error(`Tab ${tabId} not found`);
+    this.session.active_tab_id = tabId;
+    this.session.last_aom_hash = null;
+    this.session.element_map.clear();
+  }
+
+  async closeTab(tabId: number): Promise<number[]> {
+    if (!this.session) throw new Error('No active session');
+    if (this.session.tabs.size <= 1) throw new Error('CANNOT_CLOSE_LAST_TAB');
+    const page = this.session.tabs.get(tabId);
+    if (page) await page.close().catch(() => {});
+    this.session.tabs.delete(tabId);
+    this.session.console_log_buffer.delete(tabId);
+    this.session.network_failure_buffer.delete(tabId);
+    if (this.session.active_tab_id === tabId) {
+      this.session.active_tab_id = this.session.tabs.keys().next().value!;
+    }
+    return Array.from(this.session.tabs.keys());
+  }
+
   async closeSession(): Promise<void> {
-    if (this.page) {
-      const video = this.page.video();
-      if (video) {
-        const path = await video.path();
-        console.error(`[artifacts] Video saved: ${path}`);
+    if (this.session) {
+      for (const [, page] of this.session.tabs) {
+        const video = page.video();
+        if (video) {
+          const path = await video.path();
+          console.error(`[artifacts] Video saved: ${path}`);
+        }
+        await page.close().catch(() => {});
       }
-      await this.page.close().catch(() => {});
-      this.page = null;
+      this.session.tabs.clear();
     }
     if (this.context) {
       await this.context.close().catch(() => {});
@@ -153,10 +214,12 @@ export class BrowserOrchestrator {
 
     await this.context.route('**/*', (route) => {
       const url = new URL(route.request().url());
-      if (route.request().resourceType() === 'document' || route.request().resourceType() === 'script' || route.request().resourceType() === 'xhr' || route.request().resourceType() === 'fetch' || route.request().resourceType() === 'stylesheet' || route.request().resourceType() === 'image' || route.request().resourceType() === 'font' || route.request().resourceType() === 'media') {
+      const resourceTypes = ['document', 'script', 'xhr', 'fetch', 'stylesheet', 'image', 'font', 'media'];
+      if (resourceTypes.includes(route.request().resourceType())) {
         if (isBlocked(url, this.config!.security)) {
           route.abort('blockedbyclient');
-          session.network_failure_buffer.push(`BLOCKED: ${url.href}`);
+          const activeTabId = session.active_tab_id;
+          session.network_failure_buffer.get(activeTabId)?.push(`BLOCKED: ${url.href}`);
           return;
         }
       }
@@ -165,9 +228,14 @@ export class BrowserOrchestrator {
   }
 
   redactSecrets(text: string): string {
-    if (!this.config?.server.secrets) return text;
-    for (const [name, value] of Object.entries(this.config.server.secrets)) {
-      if (value) text = text.replaceAll(value, `<secret>${name}</secret>`);
+    if (!this.config?.security.secret_redaction_patterns) return text;
+    for (const pattern of this.config.security.secret_redaction_patterns) {
+      try {
+        const regex = new RegExp(pattern, 'g');
+        text = text.replace(regex, '[REDACTED]');
+      } catch {
+        // Invalid regex, skip
+      }
     }
     return text;
   }

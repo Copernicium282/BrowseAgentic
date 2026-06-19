@@ -15,13 +15,14 @@ export async function translatePage(
   const title = await page.title();
   const viewport = page.viewportSize() ?? { width: 1280, height: 800 };
 
+  const tabId = session.active_tab_id;
   const base: ObservationPayload = {
     url,
     title,
     modality,
     viewport,
-    console_alerts: [...session.console_log_buffer],
-    network_alerts: [...session.network_failure_buffer],
+    console_alerts: [...(session.console_log_buffer.get(tabId) ?? [])],
+    network_alerts: [...(session.network_failure_buffer.get(tabId) ?? [])],
   };
 
   if (modality === 'text') {
