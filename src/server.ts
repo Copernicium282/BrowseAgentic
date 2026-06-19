@@ -114,7 +114,7 @@ export function createServer(orchestrator: BrowserOrchestrator, config: BrowseAg
     },
     async (args) => {
       console.error(`[tool] eval_js → script length ${args.script.length}`);
-      const result = await handleEvalJS(orchestrator, args);
+      const result = await handleEvalJS(orchestrator, config, args);
       if (result.success) {
         return { content: [{ type: 'text' as const, text: JSON.stringify(result.result) }] };
       }

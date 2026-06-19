@@ -23,6 +23,7 @@ export class BrowserOrchestrator {
     this.actCache = new ActCache({
       storage: cacheDir ? CacheStorage.create(cacheDir) : CacheStorage.createMemory(),
       domSettleTimeoutMs: config.browser.timeout_ms,
+      ttlHours: config.cache.ttl_hours,
       getSelectorForElement: async (_id, _page) => null,
     });
 

@@ -1,3 +1,4 @@
+import type { BrowseAgenticConfig } from '../types.js';
 import type { BrowserOrchestrator } from '../orchestrator.js';
 
 export interface EvalJSInput {
@@ -8,30 +9,40 @@ export interface EvalJSResult {
   success: boolean;
   result?: unknown;
   error?: string;
-  warning?: string;
+  security_warnings?: string[];
 }
 
-// Basic XSS detection patterns (from mcp-browser, for logging only)
-const DANGEROUS_PATTERNS = [
-  { pattern: /eval\s*\(/g, name: 'eval()' },
-  { pattern: /new\s+Function\s*\(/g, name: 'new Function()' },
-  { pattern: /document\.write\s*\(/g, name: 'document.write()' },
-  { pattern: /innerHTML\s*=/g, name: 'innerHTML=' },
-  { pattern: /outerHTML\s*=/g, name: 'outerHTML=' },
+const XSS_PATTERNS = [
+  { pattern: /eval\s*\(/gi, name: 'eval()' },
+  { pattern: /new\s+Function\s*\(/gi, name: 'new Function()' },
+  { pattern: /document\.write\s*\(/gi, name: 'document.write()' },
+  { pattern: /\.innerHTML\s*=/gi, name: '.innerHTML=' },
+  { pattern: /\.outerHTML\s*=/gi, name: '.outerHTML=' },
 ];
 
 export async function handleEvalJS(
   orchestrator: BrowserOrchestrator,
+  config: BrowseAgenticConfig,
   input: EvalJSInput,
 ): Promise<EvalJSResult> {
   const page = await orchestrator.getPage();
+  const mode = config.security.eval_js_xss_detection ?? 'warn';
 
-  // Basic safety warning (not blocking, just informational)
+  // Check for dangerous patterns
   const warnings: string[] = [];
-  for (const { pattern, name } of DANGEROUS_PATTERNS) {
+  for (const { pattern, name } of XSS_PATTERNS) {
     if (pattern.test(input.script)) {
-      warnings.push(name);
+      warnings.push(`Script contains ${name} — review output carefully.`);
     }
+  }
+
+  // Block mode: reject if any warnings
+  if (mode === 'block' && warnings.length > 0) {
+    return {
+      success: false,
+      error: `XSS_PATTERN_BLOCKED: ${warnings.join('; ')}`,
+      security_warnings: warnings,
+    };
   }
 
   try {
@@ -39,7 +50,7 @@ export async function handleEvalJS(
     return {
       success: true,
       result,
-      warning: warnings.length > 0 ? `Potentially dangerous patterns detected: ${warnings.join(', ')}` : undefined,
+      security_warnings: mode === 'warn' && warnings.length > 0 ? warnings : undefined,
     };
   } catch (err: unknown) {
     return {

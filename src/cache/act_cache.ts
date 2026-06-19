@@ -36,15 +36,18 @@ export interface ActResult {
 export class ActCache {
   private storage: CacheStorage;
   private domSettleTimeoutMs: number;
+  private ttlHours: number;
   private getSelectorForElement: (elementId: number, page: Page) => Promise<string | null>;
 
   constructor(opts: {
     storage: CacheStorage;
     domSettleTimeoutMs?: number;
+    ttlHours?: number;
     getSelectorForElement: (elementId: number, page: Page) => Promise<string | null>;
   }) {
     this.storage = opts.storage;
     this.domSettleTimeoutMs = opts.domSettleTimeoutMs ?? 15000;
+    this.ttlHours = opts.ttlHours ?? 168;
     this.getSelectorForElement = opts.getSelectorForElement;
   }
 
@@ -77,6 +80,14 @@ export class ActCache {
     page: Page,
   ): Promise<ActResult | null> {
     if (!this.enabled) return null;
+
+    // Check TTL expiration
+    const ttlHours = this.ttlHours ?? 168;
+    const isExpired = await this.storage.isExpired(`${context.cacheKey}.json`, ttlHours);
+    if (isExpired) {
+      await this.storage.delete(`${context.cacheKey}.json`);
+      return null;
+    }
 
     const { value: entry, error } = await this.storage.readJson<CachedActEntry>(`${context.cacheKey}.json`);
     if (error || !entry) return null;

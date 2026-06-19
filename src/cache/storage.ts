@@ -77,4 +77,28 @@ export class CacheStorage {
       return { error: err as Error, path: filePath };
     }
   }
+
+  async delete(fileName: string): Promise<void> {
+    if (this.memoryStore) {
+      this.memoryStore.delete(fileName);
+      return;
+    }
+    if (!this.dir) return;
+    const filePath = join(this.dir, fileName);
+    await fs.unlink(filePath).catch(() => {});
+  }
+
+  async isExpired(fileName: string, ttlHours: number): Promise<boolean> {
+    if (this.memoryStore) return false; // Memory store doesn't track creation time
+    if (!this.dir) return false;
+
+    const filePath = join(this.dir, fileName);
+    try {
+      const stat = await fs.stat(filePath);
+      const ageMs = Date.now() - stat.mtimeMs;
+      return ageMs > ttlHours * 60 * 60 * 1000;
+    } catch {
+      return true; // File doesn't exist, treat as expired
+    }
+  }
 }
