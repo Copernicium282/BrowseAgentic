@@ -171,9 +171,39 @@ function buildTree(axNodes: AXNode[]): TreeNode {
 // Invisible characters to strip (from agent-browser)
 const INVISIBLE_CHARS = /[\uFEFF\u200B\u200C\u200D\u2060\u00A0]/g;
 
+// PUA characters to replace with [icon] (from skyvern)
+const PUA_PATTERN = /[\uE000-\uF8FF]/gu;
+
 function stripInvisible(str: string): string {
-  return str.replace(INVISIBLE_CHARS, '');
+  return str.replace(INVISIBLE_CHARS, '').replace(PUA_PATTERN, '[icon]');
 }
+
+// URL compression (from skyvern)
+function compressUrl(url: string): string {
+  if (!url) return url;
+  // Strip data: URIs
+  if (url.startsWith('data:')) return '[data-uri]';
+  // Hash long URLs
+  if (url.length > 150) {
+    let hash = 0;
+    for (let i = 0; i < url.length; i++) {
+      hash = ((hash << 5) - hash + url.charCodeAt(i)) | 0;
+    }
+    return `[url:${hash.toString(36)}]`;
+  }
+  // Strip query strings from long URLs
+  if (url.length > 80 && url.includes('?')) {
+    return url.split('?')[0];
+  }
+  return url;
+}
+
+// Attribute filtering (from skyvern) — keep only reserved attributes
+const RESERVED_ATTRS = new Set([
+  'aria-label', 'aria-checked', 'aria-disabled', 'aria-expanded',
+  'aria-selected', 'checked', 'disabled', 'href', 'name',
+  'placeholder', 'role', 'src', 'title', 'type', 'value',
+]);
 
 function pruneTree(node: TreeNode): void {
   const pruned: (TreeNode | string)[] = [];
@@ -340,8 +370,10 @@ function renderSnapshot(node: TreeNode, compact: boolean, maxDepth?: number, ind
 
   // Build key: role "name" [ref=eN] [props...]
   let key = node.role;
-  if (node.name && node.name.length <= 900) {
-    key += ` "${escapeYamlString(node.name)}"`;
+  // Truncate long names (from skyvern: 500 char limit)
+  const displayName = node.name && node.name.length > 500 ? node.name.slice(0, 500) + '...' : node.name;
+  if (displayName && displayName.length <= 900) {
+    key += ` "${escapeYamlString(displayName)}"`;
   }
   if (node.ref) key += ` [ref=${node.ref}]`;
   if (node.props.checked === true) key += ' [checked]';
