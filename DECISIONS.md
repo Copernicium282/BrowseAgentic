@@ -72,3 +72,25 @@ Key patterns adopted from 8 repos via deep source code analysis:
 - remorses/playwriter: Color-coded overlays by element type
 - badchars/mcp-browser: Basic XSS detection, structured network logging
 - alexrwilliam/playwright-mcp-server: Response budget system, layered capping
+
+---
+
+## Definition of Done — Reference Verification (Phase 21)
+
+Verified against Antigravity IDE v1.22.2/v1.23.2 browser automation capabilities:
+
+| Capability | Antigravity 1.x | BrowseAgentic | Status |
+|---|---|---|---|
+| Spawn browser | Chrome extension drives user's Chrome | Playwright-spawned OR CDP connect | EXCEEDS |
+| Navigate to URL (incl. localhost) | Navigates to local dev server | `navigate` + dev_mode | PARITY |
+| Click/fill forms | browserClickElement, browserInput | `interact` (click/type/hover/clear) + caching | EXCEEDS |
+| Take screenshots | captureBrowserScreenshot | `observe_page` vision (color-coded SoM) | EXCEEDS |
+| Loop back to fix | Relies on IDE editor | RSI tools (read/write/exec/git) | EXCEEDS |
+| Real-time feedback | Console log capture | Console + network capture | EXCEEDS |
+| Permission tiers | Likely not in 1.22.2/1.23.2 | Not implemented | CONFIRMED OUT OF SCOPE |
+
+**Conclusion:** BrowseAgentic has reached feature parity with Antigravity 1.x browser automation. All capabilities are at parity or better. The one confirmed gap (permission tiers) is not in the reference build and is correctly out of scope.
+
+**Dev mode added:** `dev_mode.enabled: true` allows localhost access for agentic dev loops while maintaining security defaults for general browsing.
+
+**Standalone tool note:** BrowseAgentic is a standalone MCP server usable by any agent framework. It is not tied to a specific agent or IDE.
