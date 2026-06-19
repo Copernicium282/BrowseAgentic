@@ -2,6 +2,7 @@ import { chromium, type Browser, type BrowserContext, type Page } from 'playwrig
 import type { BrowseAgenticConfig, SessionState } from './types.js';
 import { randomUUID } from 'crypto';
 import { ActCache, CacheStorage } from './cache/index.js';
+import { launchChrome, connectViaCDP, isCDPAvailable } from './chrome/index.js';
 
 export class BrowserOrchestrator {
   private browser: Browser | null = null;
@@ -10,14 +11,40 @@ export class BrowserOrchestrator {
   private config: BrowseAgenticConfig | null = null;
   private actCache: ActCache | null = null;
   private nextTabId = 1;
+  private chromeProcess: import('child_process').ChildProcess | null = null;
 
   async init(config: BrowseAgenticConfig): Promise<void> {
     this.config = config;
-    this.browser = await chromium.launch({
-      headless: config.browser.headless,
-      args: config.browser.args,
-      channel: 'chromium',
-    });
+
+    // Try CDP connection first (connect to existing Chrome)
+    const cdpPort = config.browser.cdp_port;
+    if (cdpPort && await isCDPAvailable(cdpPort)) {
+      console.error(`[orchestrator] Connecting to existing Chrome on CDP port ${cdpPort}`);
+      const cdp = await connectViaCDP(cdpPort);
+      this.browser = cdp.browser;
+      this.context = cdp.context;
+    } else if (config.browser.chrome_path) {
+      // Launch Chrome with custom binary
+      console.error(`[orchestrator] Launching Chrome from ${config.browser.chrome_path}`);
+      const chrome = await launchChrome({
+        binary_path: config.browser.chrome_path,
+        headless: config.browser.headless,
+        cdp_port: cdpPort ?? 9222,
+        args: config.browser.args,
+      });
+      this.chromeProcess = chrome.process;
+      const cdp = await connectViaCDP(chrome.cdp_port);
+      this.browser = cdp.browser;
+      this.context = cdp.context;
+    } else {
+      // Default: launch via Playwright
+      console.error('[orchestrator] Launching Chrome via Playwright');
+      this.browser = await chromium.launch({
+        headless: config.browser.headless,
+        args: config.browser.args,
+        channel: 'chromium',
+      });
+    }
 
     const cacheDir = config.cache.backend === 'filesystem' ? config.cache.dir : undefined;
     this.actCache = new ActCache({

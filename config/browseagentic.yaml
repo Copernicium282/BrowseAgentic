@@ -12,6 +12,9 @@ browser:
     - "--disable-dev-shm-usage"
     - "--no-sandbox"
   timeout_ms: 30000
+  # chrome_path: "/usr/bin/google-chrome"  # Optional: path to Chrome binary
+  # cdp_port: 9222                          # Optional: connect to existing Chrome via CDP
+  # user_data_dir: "~/.browseagentic/chrome-profile"  # Optional: Chrome profile directory
 
 security:
   block_localhost: true

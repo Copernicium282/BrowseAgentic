@@ -15,6 +15,9 @@ export interface BrowseAgenticConfig {
     viewport: { width: number; height: number };
     args: string[];
     timeout_ms: number;
+    chrome_path?: string;
+    cdp_port?: number;
+    user_data_dir?: string;
   };
   security: {
     block_localhost: boolean;
