@@ -10,7 +10,7 @@ export interface BrowseAgenticConfig {
     transport: 'stdio';
   };
   browser: {
-    engine: 'chromium';
+    engine: 'chromium' | 'firefox';
     headless: boolean;
     viewport: { width: number; height: number };
     args: string[];

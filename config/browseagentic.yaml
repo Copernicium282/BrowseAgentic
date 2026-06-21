@@ -2,7 +2,7 @@ server:
   transport: "stdio"
 
 browser:
-  engine: "chromium"
+  engine: "chromium"  # "chromium" or "firefox"
   headless: false
   viewport:
     width: 960
@@ -13,6 +13,7 @@ browser:
   # chrome_path: "/usr/bin/google-chrome"  # Optional: path to Chrome binary
   # cdp_port: 9222                          # Optional: connect to existing Chrome via CDP
   # user_data_dir: "~/.browseagentic/chrome-profile"  # Optional: Chrome profile directory
+  # Firefox: set engine to "firefox" and use ./scripts/browser.sh start firefox
 
 security:
   block_localhost: true

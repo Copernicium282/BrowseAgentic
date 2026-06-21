@@ -33,8 +33,8 @@ function validateConfig(parsed: Record<string, unknown>, filePath: string): Brow
   }
 
   const browser = parsed.browser as Record<string, unknown>;
-  if (browser.engine !== 'chromium') {
-    throw new Error(`Only chromium engine is supported, got: "${browser.engine}"`);
+  if (browser.engine !== 'chromium' && browser.engine !== 'firefox') {
+    throw new Error(`Only chromium and firefox engines are supported, got: "${browser.engine}"`);
   }
 
   const config = parsed as unknown as BrowseAgenticConfig;

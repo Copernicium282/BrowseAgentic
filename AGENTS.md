@@ -113,10 +113,27 @@ Note: `browser.close()` in CDP mode disconnects from Chrome — it does NOT kill
 
 ## How to Start a Session
 
-1. **Ask the user** to run: `./scripts/browser.sh start` — **the agent must NOT run this command itself** because Chrome blocks the terminal indefinitely. The user runs it in a separate terminal.
-2. Wait for the user to confirm Chrome is ready (the script prints "Chrome ready on CDP port 9222").
+1. **Ask the user** to run:
+   - Chrome: `./scripts/browser.sh start`
+   - Firefox: `./scripts/browser.sh start firefox`
+   
+   **The agent must NOT run this command itself** because the browser blocks the terminal indefinitely. The user runs it in a separate terminal.
+
+2. Wait for the user to confirm the browser is ready.
 3. Either use MCP tools (Option A) or write Playwright scripts (Option B).
 4. You now control the visible browser.
+
+### Chrome vs Firefox
+
+- **Chrome**: Launched with CDP (Chrome DevTools Protocol). Agent connects via `chromium.connectOverCDP()`.
+- **Firefox**: Launched directly. Agent connects via `firefox.launch()` or `firefox.connectOverCDP()` (Playwright handles this transparently).
+
+For Firefox, you can also skip the script and launch directly:
+```js
+const { firefox } = require('playwright');
+const browser = await firefox.launch({ headless: false });
+const page = await browser.newPage();
+```
 
 ## How to Interact (Read This First)
 
